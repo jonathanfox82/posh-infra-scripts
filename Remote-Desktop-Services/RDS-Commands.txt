@@ -1,0 +1,36 @@
+﻿#Vars
+
+Import-Module RemoteDesktop
+
+# Get RDS Session Collection
+Get-RDSessionCollection -ConnectionBroker $RDSBroker
+
+# Get RemoteApp Programs
+Get-RDRemoteApp -ConnectionBroker $RDSBroker
+
+# Get RemoteApp programs by collection name
+Get-RDRemoteApp -CollectionName $CollectionName  -ConnectionBroker $RDSBroker
+
+# Get RemoteApp programs by name
+Get-RDRemoteApp -DisplayName *Eclipse* -ConnectionBroker $RDSBroker
+
+# Get RDS Session Hosts for a collection
+Get-RDSessionHost -CollectionName $CollectionName -ConnectionBroker $RDSBroker
+
+# Get list of RDS User sessions
+Get-RDUserSession -ConnectionBroker $RDSBroker
+
+# Get list of RDS User sessions
+Get-RDUserSession -ConnectionBroker $RDSBroker | Where-Object -Filter {$_.Username -eq $UserName} 
+
+# Log off a user from a session host once you have the Host Server and session Id
+Invoke-RDUserLogoff -HostServer "lonix-rds-sh1.ghfinancials.co.uk" -UnifiedSessionID 2
+
+# Get a list of all user sessions that are disconnected (not active)
+Get-RDUserSession -ConnectionBroker $RDSBroker | Where-Object -Filter {$_.SessionState -eq 'STATE_DISCONNECTED'}
+
+# Log off all disconnected sessions across all session hosts
+Get-RDUserSession -ConnectionBroker $RDSBroker | Where-Object -Filter {$_.SessionState -eq 'STATE_DISCONNECTED'} | ForEach-Object { Invoke-RDUserLogoff -HostServer $_.HostServer -UnifiedSessionID $_.UnifiedSessionID -Force}
+
+# Log off all sessions for a specific user across the session hosts for 
+Get-RDUserSession -ConnectionBroker $RDSBroker | Where-Object -Filter {$_.Username -eq $UserName} | ForEach-Object { Invoke-RDUserLogoff -HostServer $_.HostServer -UnifiedSessionID $_.UnifiedSessionID -Force}
