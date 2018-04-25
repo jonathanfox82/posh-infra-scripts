@@ -1,11 +1,13 @@
 ﻿<#
 .Synopsis
    Create a folder on the file server for staff to exchange information
+   Work in progress
 .DESCRIPTION
    Create a folder, share and adds AD groups for security access.
    Adds an owner as a member of the "Modify Permission" AD security group.
 .EXAMPLE
-   Create-Managed-Folders.ps1 -FolderName Finance -Owner "Tony Smith"
+   Create-Managed-Folder.ps1 -FolderName Finance -Owner "Tony Smith"
+    MODIFY VARIABLES BLOCK BELOW TO SUIT
 #>
 
 Param
@@ -13,12 +15,8 @@ Param
     # Name for the folder
     [Parameter(Mandatory=$true)]
     $FolderName,
-    # Base folder path to create the folder at (Default is GHF Projects share)
-    [string]
-    $Location = "\\ghfinancials.co.uk\GHF\Shares\Projects",
     [Parameter(Mandatory=$true)]
-    [string]
-    $Owner
+    [string]$Owner
 )
 Function Remove-InvalidFileNameChars {
   param(
@@ -34,24 +32,24 @@ Function Remove-InvalidFileNameChars {
   return ($Name -replace $re)
 }
 
-
 ##### PRE CHECK #####
 $FolderName = Remove-InvalidFileNameChars($FolderName)
 
-###### VARIABLES ######
+###### VARIABLES BLOCK ######
 $RWGroup = "Modify access to $FolderName"
 $RGroup = "Read access to $FolderName"
+# Name of admin group with full permissions on file servers
+$FSAdminsGroup = "File Server Administrators"
+#Location in AD where the security groups for file server permissions are stored
+$FSSecurityGroupOU = "OU=File Server Permissions,OU=Security Permission Groups,OU=Domain,DC=ghfinancials,DC=co,DC=uk"
+# Base folder path to create the folder at (Default is GHF Projects share)
+$Location = "\\ghfinancials.co.uk\GHF\Shares\Projects"
+#############################
 
 # Get nearest DC.
 $DC = Get-ADDomainController -Discover -Service "GlobalCatalog"
 
 $FullPath = $location+ "\" +$FolderName
-
-# Name of admin group with full permissions on file servers
-$FSAdminsGroup = "File Server Administrators"
-
-#Location in AD where the security groups for file server permissions are stored
-$FSSecurityGroupOU = "OU=File Server Permissions,OU=Security Permission Groups,OU=Domain,DC=ghfinancials,DC=co,DC=uk"
 
 ###### START SCRIPT ######
 # Check if the Owner is an AD user

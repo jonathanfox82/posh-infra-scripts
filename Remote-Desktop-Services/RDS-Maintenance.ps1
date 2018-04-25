@@ -11,10 +11,10 @@
  Jonathan Fox
 #>
 
-
 Param
 (
-    [String]$RDSBroker="lonix-rds-br1.ghfinancials.co.uk"
+    [Parameter(Mandatory=$True)]
+    [String]$RDSBroker
 )
 function Restart-RDSSessionHost {
      param (

@@ -13,15 +13,13 @@ Param
     [String]$vCenter="lcy-vcenter.corp.hertshtengroup.com"
 )
 
-
-$cred = Get-Credential
-
-# Import PowerCLI Modules
+# Import PowerCLI Modules 
+Write-Host Importing VMware Modules
 Get-Module -ListAvailable VM* | Import-Module
 
 # Connect to vCenter
-Connect-VIServer -Server $vCenter -Credential $cred
-
+Write-Host Connecting to vCenter server $vCenter
+Connect-ViServer -server $vCenter -ErrorAction Stop | Out-Null
 
 Write-Host "--------------------------------"
 Write-Host "Enabling vCenter alarms"

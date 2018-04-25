@@ -15,10 +15,9 @@
 
 Param
 (
-    [String]$vCenter="lcy-vcenter.corp.hertshtengroup.com",
-    [bool]$Whatif= $false
+    [String]$vCenter="lcy-vcenter.corp.hertshtengroup.com"
 )
-function Powerdown-Office ($DatacenterName)
+function Powerdown-Datacenter ($DatacenterName)
 {
     # Get Cluster object
     $cluster = Get-Datacenter $DatacenterName | Get-Cluster
@@ -110,62 +109,59 @@ $emailFrom = "noreply@hertshtengroup.com"
 $emailTo = "server.engineering@hertshtengroup.com"
 ########################################
 
-
-Write-Host Importing VMware.VimAutomation.Core Module 
-
 # Import PowerCLI Modules 
-Get-Module VM* | Import-Module
+Write-Host Importing VMware Modules
+Get-Module -ListAvailable VM* | Import-Module
 
-Write-Host Connecting to vCenter server $vCenter
 # Connect to vCenter
-
-Connect-VIServer -Server $vCenter
+Write-Host Connecting to vCenter server $vCenter
+Connect-ViServer -server $vCenter -ErrorAction Stop | Out-Null
 
 $i=1
 $selection = ""
-# Create an ordered hashtable to contain the office selections
-$OfficeList = [ordered]@{}
+# Create an ordered hashtable to contain the datacenter selections
+$DatacenterList = [ordered]@{}
 
-# Exclude our main datacenter (will move this to a variable exclude pattern later)
+# Get list of datacenters and add them to a hash table
+# Exclude our main datacenter (Could move this to a variable exclude pattern later but this works for now)
 Get-Datacenter | Where Name -NotMatch Interxion | % {
-    $OfficeList.add($i, $_.Name)
+    $DatacenterList.add($i, $_.Name)
     $i++
 }
 
 do
 {
-     Show-Menu -Title "Office power down Menu, Select an office to shut down" -MenuOptions $OfficeList
+     Show-Menu -Title "Office power down Menu, Select an office to shut down" -MenuOptions $DatacenterList
      $selection = Read-Host "Please make a selection or press q to quit"
 
-     # Is this an Integer?
-     if ($selection -match "^\d+$")
+     # Is this an Integer? Does the value appear in the DataCenter keys list
+     if ($selection -match "^\d+$" -And (($DatacenterList.Keys) -contains $selection))
      {
-         if (($OfficeList.Keys) -contains $selection) {
-            $OfficeName = ($OfficeList.[int]$selection)
-            $User = ($env:UserName)
-            Write-Host  $User You have chosen to shut down the office $OfficeName. -ForegroundColor White -BackgroundColor Red
+        $OfficeName = ($DatacenterList.[int]$selection)
+        $User = ($env:UserName)
+        Write-Host  $User You have chosen to shut down the office $OfficeName. -ForegroundColor White -BackgroundColor Red
 
-            # A chance to change your mind
-            write-host -nonewline "Continue? (Y/N) "
-            $response1 = read-host
-            if ( $response1 -ne "Y" ) { exit }
+        # A chance to change your mind
+        write-host -nonewline "Continue? (Y/N) "
+        $response1 = read-host
+        if ( $response1 -ne "Y" ) { exit }
 
-            Write-Host THIS SCRIPT IS ACTIVE THE OFFICE WILL BE POWERED DOWN -ForegroundColor White -BackgroundColor Red
+        Write-Host THIS SCRIPT IS ACTIVE THE OFFICE WILL BE POWERED DOWN -ForegroundColor White -BackgroundColor Red
 
-            # One last chance to change your mind
-            write-host -nonewline "Are you sure? (Y/N) "
-            $response2 = read-host
-            if ( $response2 -ne "Y" ) { exit }
+        # One last chance to change your mind
+        write-host -nonewline "Are you sure? (Y/N) "
+        $response2 = read-host
+        if ( $response2 -ne "Y" ) { exit }
 
-            $body = "$User has initiated an office shutdown for $OfficeName"
+        $body = "$User has initiated an office shutdown for $OfficeName"
 
-            Write-Host "Sending email notification"
-            Send-MailMessage -To $emailTo -From $emailFrom "noreply@hertshtengroup.com" -Subject "$OfficeName power down initiated by $User" -SmtpServer "smtp.corp.hertshtengroup.com" -Body $body
+        Write-Host "Sending email notification"
+        Send-MailMessage -To $emailTo -From $emailFrom "noreply@hertshtengroup.com" -Subject "$OfficeName power down initiated by $User" -SmtpServer "smtp.corp.hertshtengroup.com" -Body $body
 
-            Powerdown-Office ($OfficeList.[int]$selection)
-            Read-Host "Press enter key to exit..."
-            Exit
-         }
+        Powerdown-Datacenter ($DatacenterList.[int]$selection)
+        Read-Host "Press enter key to exit..."
+        Exit
+
      }
 }
 until ($selection -eq 'q')

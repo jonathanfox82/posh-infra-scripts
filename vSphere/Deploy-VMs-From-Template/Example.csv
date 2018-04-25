@@ -1,0 +1,3 @@
+template,datastore,diskformat,vmhost,custspec,vmname,ipaddress,subnet,gateway,pdns,sdns,datacenter,folder,stdpg,memsize,cpucount,description
+winserver-2012r2-20170528,Mumbai Datastore LUN1,thick,mum-esx01.corp.hertshtengroup.com,Server.HG.Domain,mum-ttnet1,10.137.35.200,255.255.255.0,10.137.10.10,10.137.10.101,10.18.10.11,Mumbai Office,TTNET,VLAN35 - TTNET,4096,2,
+winserver-2012r2-20170528,Mumbai Datastore LUN2,thick,mum-esx02.corp.hertshtengroup.com,Server.HG.Domain,mum-ttnet2,10.137.35.201,255.255.255.0,10.137.10.10,10.137.10.101,10.18.10.10,Mumbai Office,TTNET,VLAN35 - TTNET,4096,2,
