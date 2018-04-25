@@ -101,12 +101,33 @@ function Show-Menu
     }
 }
 
+function Pause-PRTGProbes {
+    param (
+        [string]$DatacenterName,
+        [string]$PrtgServer,
+        [string]$PrtgUsername,
+        [string]$PrtgPassHash
+        )
 
+        Get-Module prtgshell -listavailable | Import-Module
+        Get-PrtgServer -Server $PrtgServer -UserName $PrtgUsername -PassHash $PrtgPassHash
+
+        # Pause the probes matching the datacenter name
+        $probes = Get-PRTGProbes | Where name -match $DatacenterName | % { Pause-PrtgObject $_.objid }
+        Write-Host "Paused the PRTG Probes"
+
+}
 
 # Variable Block #
 ########################################
 $emailFrom = "noreply@hertshtengroup.com"
 $emailTo = "server.engineering@hertshtengroup.com"
+
+# PRTG Monitoring Server Details 
+$PrtgServer = $env:PrtgServer
+$PrtgUsername = $env:PrtgUsername
+$PrtgPassHash = $env:PrtgPassHash 
+
 ########################################
 
 # Import PowerCLI Modules 
@@ -156,7 +177,10 @@ do
         $body = "$User has initiated an office shutdown for $OfficeName"
 
         Write-Host "Sending email notification"
-        Send-MailMessage -To $emailTo -From $emailFrom "noreply@hertshtengroup.com" -Subject "$OfficeName power down initiated by $User" -SmtpServer "smtp.corp.hertshtengroup.com" -Body $body
+        Send-MailMessage -To $emailTo -From $emailFrom -Subject "$OfficeName power down initiated by $User" -SmtpServer "smtp.corp.hertshtengroup.com" -Body $body
+
+        Write-Host "Pausing PRTG probes"
+        Pause-PRTGProbes -DatacenterName $OfficeName -PrtgServer $PrtgServer -PrtgUsername $PrtgUsername -PrtgPassHash $PrtgPassHash
 
         Powerdown-Datacenter ($DatacenterList.[int]$selection)
         Read-Host "Press enter key to exit..."
