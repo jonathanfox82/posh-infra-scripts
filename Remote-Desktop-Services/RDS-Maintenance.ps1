@@ -78,7 +78,7 @@ do
             }
             elseif ($selection -eq "2") {
                 $RDSSessions = Print-RDSUsersessions
-                $UserNameResponse = Read-Host "Enter the username for the acount you wish to terminate all sessions for or press q to quit"
+                $UserNameResponse = Read-Host "Enter the username for the account you wish to terminate all sessions for or press q to quit"
                 if ( $UserNameResponse -eq "q" )
                 {
                     Exit 
@@ -141,7 +141,6 @@ do
                     }
                 }
                 until ($ServerSelection -eq 'q')
-
             }
      }
 }
