@@ -78,7 +78,7 @@ $AccountsRESTResponse = Get-TTAccounts -Environment $Environment
 $AccountsHashTable = Convert-TTRESTObjectToHashtable -Objects $AccountsRESTResponse
 
 # Obtain a REST response for markets
-$MarketsRESTResponse = Get-TTMarkets
+$MarketsRESTResponse = Get-TTMarkets -Environment $Environment
 
 # Convert markets object to a hashtable
 $MarketsHashTable = Convert-TTRESTObjectToHashtable -Objects $MarketsRESTResponse
@@ -161,7 +161,7 @@ else {
     }
 
     # Print PNL Table
-    $PNLTable | Select Market, @{N='PnL'; E={"{0:c}" -f $_.PnL}}  | Format-Table | Out-String| % {Write-Host $_}
+    $PNLTable | Select Market, @{N='PnL'; E={"{0:c}" -f $_.PnL}}  | Sort-Object -Property Market | Format-Table | Out-String| % {Write-Host $_}
 }
 
 # Sum total PNL

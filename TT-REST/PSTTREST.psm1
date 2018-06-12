@@ -274,7 +274,7 @@ function Get-TTPositions
         Write-Host "$(Get-TimeStamp) StatusDescription:" $_.Exception.Response.StatusDescription
         Exit
     }
-    Write-Host "$(Get-TimeStamp) Position Response: $response.status"
+    Write-Host "$(Get-TimeStamp) Position Response: $($response.status)"
 
     # Create new positions array containing only the position data from the REST response (not the status messages)
     $positions = @()
@@ -407,7 +407,6 @@ function Get-EnrichedPositionData {
     # Obtain a REST response for accounts
     Write-Host "$(Get-TimeStamp) Call Get-TTAccounts function from Get-EnrichedPositionData function"
     $AccountsRESTResponse = Get-TTAccounts -Environment $Environment
-    Write-Host $AccountsRESTResponse
 
     Write-Host "$(Get-TimeStamp) Call Convert-TTRESTObjectToHashtable function from Get-EnrichedPositionData function"
     # Convert result to a hashtable
