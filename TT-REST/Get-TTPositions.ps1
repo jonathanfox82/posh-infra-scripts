@@ -69,22 +69,16 @@ $global:APISecret = ""
 Test-APIVars -ParamKey $TTAPIKey -ParamSecret $TTAPISecret
 
 # Get an API token using module, this function sets the value of $APIToken globally.
-Get-TTRESTToken -APIKey $APIKey `
-                -APISecret $APISecret `
-                -Environment $Environment
+Get-TTRESTToken -Environment $Environment
 
 # Obtain a REST response for accounts
-$AccountsRESTResponse = Get-TTAccounts -APIKey $APIKey `
-                                       -APIToken $APIToken `
-                                       -Environment $Environment
+$AccountsRESTResponse = Get-TTAccounts -Environment $Environment
 
 # Convert result to a hashtable
 $AccountsHashTable = Convert-TTRESTObjectToHashtable -Objects $AccountsRESTResponse
 
 # Obtain a REST response for markets
-$MarketsRESTResponse = Get-TTMarkets -APIKey $APIKey `
-                                     -APIToken $APIToken `
-                                     -Environment $Environment
+$MarketsRESTResponse = Get-TTMarkets
 
 # Convert markets object to a hashtable
 $MarketsHashTable = Convert-TTRESTObjectToHashtable -Objects $MarketsRESTResponse
@@ -130,9 +124,7 @@ if ($Accounts) {
 
 # Get the positions
 Write-Host Get Positions -ForegroundColor Black -BackgroundColor Cyan
-$EnrichedPositions = Get-EnrichedPositionData -APIKey $APIKey `
-                                              -APIToken $APIToken `
-                                              -Environment $Environment `
+$EnrichedPositions = Get-EnrichedPositionData -Environment $Environment `
                                               -AccountFilter $AccountIDFilterString `
                                               -IncludeMarket $IncludeMarkets `
                                               -ExcludeMarket $ExcludeMarkets

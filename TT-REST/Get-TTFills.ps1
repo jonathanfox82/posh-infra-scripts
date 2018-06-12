@@ -78,22 +78,16 @@ $minTimestamp=[int64]((Get-Date -Hour 0 -Minute 00 -Second 00).AddDays(-1)-(get-
 #>
 
 # Get an API token using module, this function sets the value of $APIToken globally.
-Get-TTRESTToken -APIKey $APIKey `
-                -APISecret $APISecret `
-                -Environment $Environment
+Get-TTRESTToken -Environment $Environment
 
 # Obtain a REST response for accounts
-$AccountsRESTResponse = Get-TTAccounts -APIKey $APIKey `
-                                       -APIToken $APIToken `
-                                       -Environment $Environment
+$AccountsRESTResponse = Get-TTAccounts -Environment $Environment
 
 # Convert result to a hashtable
 $AccountsHashTable = Convert-TTRESTObjectToHashtable -Objects $AccountsRESTResponse
 
 # Obtain a REST response for markets
-$MarketsRESTResponse = Get-TTMarkets -APIKey $APIKey `
-                                     -APIToken $APIToken `
-                                     -Environment $Environment
+$MarketsRESTResponse = Get-TTMarkets -Environment $Environment
 
 # Convert markets object to a hashtable
 $MarketsHashTable = Convert-TTRESTObjectToHashtable -Objects $MarketsRESTResponse
@@ -114,15 +108,8 @@ if ($IncludeMarkets) {
     }
 }
 
-# format HTTP header for data GET requests
-$DataRequestHeaders = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
-$DataRequestHeaders.Add("x-api-key", $APIKey)
-$DataRequestHeaders.Add("Authorization", 'Bearer '+ $APIToken )
-
-
 $OrderDataResponse = Invoke-RestMethod -Uri $baseURL/ledger/$Environment/orderdata -Method Get -Headers $DataRequestHeaders -ContentType 'application/json'
 $OrderData = $OrderDataResponse.orderData
-
 
 $StartProcessingTime = Get-Date
 
@@ -149,16 +136,13 @@ do
         }
     }
     until ($fillsResponse.StatusCode -eq 200)
-        
-    $fillsResponse = $fillsResponse.ToString()
-    # Crude hack to fix issue with TT API
-    
-    $fills = $fillsResponse.Replace("currUserId`": ,","currUserId`":`"`"`,") | ConvertFrom-Json
+          
+    $fills = $fillsResponse | ConvertFrom-Json
 
     Write-Host Downloaded $fills.fills.Count new fills in $RequestTime.Seconds seconds
 
     # Output results
-    #$fills.fills | Format-Table | Out-String| % {Write-Host $_}
+    $fills.fills | Format-Table | Out-String| % {Write-Host $_}
     
     # Add to array
     $FillsArray += $fills.fills

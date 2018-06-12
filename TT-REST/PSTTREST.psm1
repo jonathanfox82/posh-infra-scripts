@@ -29,14 +29,7 @@ function Test-JSONResponse {
         }
 }
 
-<#
-.Synopsis
-   Connect to the TT REST API and obtain a token
-.DESCRIPTION
-.EXAMPLE
-   Get-TTRESTToken -APIkey "myapikey" -APISecret "myapisecret" -Environment "ext_prod_live"
-   Supply your own API key and connect to live environment
-#>
+
 
 function Test-APIVars {
     [CmdletBinding()]
@@ -80,6 +73,15 @@ function Test-APIVars {
         }
     }
 }
+
+<#
+.Synopsis
+   Connect to the TT REST API and obtain a token
+.DESCRIPTION
+.EXAMPLE
+   Get-TTRESTToken -APIkey "myapikey" -APISecret "myapisecret" -Environment "ext_prod_live"
+   Supply your own API key and connect to live environment
+#>
 function Get-TTRESTToken
 {
     [CmdletBinding()]
@@ -118,6 +120,11 @@ function Get-TTRESTToken
 
     # Set the global variable access_token so it can be used in all modules.
     $global:APIToken = $AccessToken.access_token
+
+    # format HTTP header for data GET requests
+    $global:DataRequestHeaders = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
+    $DataRequestHeaders.Add("x-api-key", $APIKey)
+    $DataRequestHeaders.Add("Authorization", 'Bearer '+ $APIToken )
 }
 
 <#
@@ -127,7 +134,7 @@ function Get-TTRESTToken
    Connect to the TT REST API and get a full list of the TT accounts associated with the API key specified
    Returns only the data from the request (not the status)
 .EXAMPLE
-   Get-TTMarkets -APIKey <API Key> -APIToken <API Token> -Environment ext-prod-live
+   Get-TTMarkets -Environment ext-prod-live
 #>
 function Get-TTAccounts
 {
@@ -137,11 +144,6 @@ function Get-TTAccounts
         # TT Environment
         [string]$Environment
     )
-
-    # format HTTP header for data GET requests
-    $DataRequestHeaders = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
-    $DataRequestHeaders.Add("x-api-key", $APIKey)
-    $DataRequestHeaders.Add("Authorization", 'Bearer '+ $APIToken )
 
     # Get remaining accounts data until we have all the account data
     # The TT REST API does something odd here and returns duplicate accounts details, I filter those
@@ -155,10 +157,10 @@ function Get-TTAccounts
 
         Start-Sleep 0.5
         if ($nextPageKey) {
-            $response = Invoke-RestMethod -Uri $baseURL/risk/$Environment/accounts?nextPageKey=$nextPageKey -Method Get -Headers $DataRequestHeaders
+            $response = Invoke-RestMethod -Uri $baseURL/risk/$Environment/accounts?nextPageKey=$nextPageKey -Method Get -Headers $DataRequestHeaders -ContentType 'application/json'
         }
         else {
-            $response = Invoke-RestMethod -Uri $baseURL/risk/$Environment/accounts -Method Get -Headers $DataRequestHeaders
+            $response = Invoke-RestMethod -Uri $baseURL/risk/$Environment/accounts -Method Get -Headers $DataRequestHeaders -ContentType 'application/json'
         }
         
         $nextPageKey = $response.nextPageKey
@@ -178,20 +180,16 @@ function Get-TTAccounts
    Connect to the TT REST API and get a list of the TT markets.
    Returns only the data from the request (not the status)
 .EXAMPLE
-   Get-TTMarkets -APIKey <API Key> -APIToken <API Token> -Environment ext-prod-live
+   Get-TTMarkets -Environment ext-prod-live
 #>
 function Get-TTMarkets
 {
     [CmdletBinding()]
     Param
     (
-        # TT Environment (default to UAT)
+        # TT Environment
         [string]$Environment
     )
-    # format HTTP header for data GET requests
-    $DataRequestHeaders = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
-    $DataRequestHeaders.Add("x-api-key", $APIKey)
-    $DataRequestHeaders.Add("Authorization", 'Bearer '+ $APIToken )
     
     # Get markets data 
     $markets = Invoke-RestMethod -Uri $baseURL/pds/$Environment/markets -Method Get -Headers $DataRequestHeaders
@@ -245,7 +243,7 @@ function Convert-HashtableToObjectArray {
 .DESCRIPTION
    Connect to the TT REST API, obtain the positions and return only the data from the request (not the status)
 .EXAMPLE
-   Get-TTPositions -APIKey <API Key> -APIToken <API Token> -Environment ext-prod-live
+   Get-TTPositions -Environment ext-prod-live
 #>
 function Get-TTPositions
 {
@@ -256,11 +254,6 @@ function Get-TTPositions
         [string]$Environment,
         [string]$AccountFilter
     )
-
-    # format HTTP header for data GET requests
-    $DataRequestHeaders = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
-    $DataRequestHeaders.Add("x-api-key", $APIKey)
-    $DataRequestHeaders.Add("Authorization", 'Bearer '+ $APIToken )
 
     # If a filter is specified append that to the REST request
     # Use ScaleQty 0 to get the total number of contracts rather than contracts in flow for energy products
@@ -282,6 +275,7 @@ function Get-TTPositions
         Exit
     }
     Write-Host "$(Get-TimeStamp) Position Response: $response.status"
+
     # Create new positions array containing only the position data from the REST response (not the status messages)
     $positions = @()
     $positions = $response.positions
@@ -304,10 +298,6 @@ function Get-InstrumentCache {
         # Path
         [string]$Path = "Data\instruments.xml"
     )
-    # format HTTP header for data GET requests
-    $DataRequestHeaders = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
-    $DataRequestHeaders.Add("x-api-key", $APIKey)
-    $DataRequestHeaders.Add("Authorization", 'Bearer '+ $APIToken )
 
     # Create a hashtable for instruments.
     $instrumentsCache= @{}
@@ -335,13 +325,9 @@ function Add-InstrumentDataToCache {
         # Array of instrumentsIds to add to cache
         [uint64[]]$InstrumentIDs
     )
-    # format HTTP header for data GET requests
-    $DataRequestHeaders = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
-    $DataRequestHeaders.Add("x-api-key", $APIKey)
-    $DataRequestHeaders.Add("Authorization", 'Bearer '+ $APIToken )
 
     # Obtain a REST response for markets
-    $MarketsRESTResponse = Get-TTMarkets -APIKey $APIKey -APIToken $APIToken -Environment $Environment
+    $MarketsRESTResponse = Get-TTMarkets -Environment $Environment
     # Convert markets object to a hashtable
     $MarketsHashTable = Convert-TTRESTObjectToHashtable -Objects $MarketsRESTResponse
 
