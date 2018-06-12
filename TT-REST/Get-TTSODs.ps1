@@ -15,16 +15,16 @@
 Param
 (
     # TT API Key
-    [Parameter(mandatory=$true)]
-    [string]$APIKey,
+    [Parameter(mandatory=$false)]
+    [string]$TTAPIKey,
 
     # TT API Key Secret part
-    [Parameter(mandatory=$true)]
-    [string]$APISecret,
+    [Parameter(mandatory=$false)]
+    [string]$TTAPISecret,
 
     # TT Environment (default live)
     [Parameter(mandatory=$false)]
-    [string]$Environment = "ext_prod_live",
+    [string]$global:Environment = "ext_prod_live",
 
     # Market name to include as string array
     [Parameter(mandatory=$false)]
@@ -41,7 +41,8 @@ Param
     [Parameter(mandatory=$false)]
     [string]$Email
 )
-Write-Host Importing TTREST Module
+
+Write-Host "$(Get-TimeStamp) Importing TTREST Module"
 
 # Remove module if it exists already
 Remove-Module PSTTREST -ErrorAction SilentlyContinue
@@ -53,7 +54,6 @@ Import-Module '.\PSTTREST.psm1' -ErrorAction Stop
 $smtpServer = "smtp.ghfinancials.co.uk"
 $fromAddress = "ttsodscript@ghfinancials.com"
 $subject = "TT SOD Automation Completed"
-$InstCacheFile = "Data\instruments.xml"
 ####################################################
 $date = (Get-Date).ToString('yyyyMMdd-HHmmss')
 
@@ -61,19 +61,21 @@ $date = (Get-Date).ToString('yyyyMMdd-HHmmss')
  INITIAL SETUP AND OBTAIN TT API TOKEN, CHECK PARAMS ARE VALID
 #>
 
+$global:APIKey = ""
+$global:APISecret = ""
+Test-APIVars -ParamKey $TTAPIKey -ParamSecret $TTAPISecret
+
+
 # Create data folder for export
 New-Item -ItemType Directory -Name Data\$Environment\ -ErrorAction SilentlyContinue
 
-# Get an API token using module
-$AccessToken = Get-TTRESTToken -APIKey $APIKey `
-                               -APISecret $APISecret `
-                               -Environment $Environment
+# Get an API token using module, this function sets the value of $APIToken globally.
+Get-TTRESTToken -Environment $Environment
 
 # Get the positions
-Write-Host Get Positions -ForegroundColor Black -BackgroundColor Cyan
-$EnrichedPositions = Get-EnrichedPositionData -APIKey $APIKey `
-                                              -APIToken $AccessToken `
-                                              -Environment $Environment `
+Write-Host "$(Get-TimeStamp) Get Positions" -ForegroundColor Black -BackgroundColor Cyan
+
+$EnrichedPositions = Get-EnrichedPositionData -Environment $Environment `
                                               -IncludeMarket $IncludeMarkets `
                                               -ExcludeMarket $ExcludeMarkets
 
@@ -85,7 +87,7 @@ $Output = $EnrichedPositions | Where-Object { $_.sodNetPos -ne 0 } | Sort-Object
 $Output | Format-Table | Out-String| % {Write-Host $_}
 
 # Export output to CSV.
-Write-Host Exporting Positions -ForegroundColor Black -BackgroundColor Cyan
+Write-Host "$(Get-TimeStamp) Exporting Positions" -ForegroundColor Black -BackgroundColor Cyan
 $Output | Export-Csv -Path ".\Data\$Environment\$OutputFileName" -NoTypeInformation
 
 <# 
@@ -93,7 +95,7 @@ $Output | Export-Csv -Path ".\Data\$Environment\$OutputFileName" -NoTypeInformat
  If email address is defined, send to that address 
 #>
 If ($Email) {
-Write-Host Sending email notifications
+Write-Host "$(Get-TimeStamp) Sending email notifications"
 $file = "$(Get-Location)\Data\$Environment\$OutputFileName"
 $att = new-object Net.Mail.Attachment($file)
 $msg = new-object Net.Mail.MailMessage

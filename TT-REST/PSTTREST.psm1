@@ -1,4 +1,33 @@
-[string]$baseURL = "https://apigateway.trade.tt"
+[string]$global:baseURL = "https://apigateway.trade.tt"
+[string]$global:CacheFile = "Data\instruments.xml"
+
+function Get-TimeStamp {
+    
+    return "[{0:MM/dd/yy} {0:HH:mm:ss}]" -f (Get-Date)
+    
+}
+
+
+function Test-JSONResponse {
+    Param
+    (
+        # TT API Key
+        [string]$StringToCheck
+    )
+        try {
+            $powershellRepresentation = ConvertFrom-Json $StringToCheck -ErrorAction Stop
+            $validJson = $true
+        } catch {
+            $validJson = $false
+        }
+
+        if ($validJson) {
+            Write-Host "$(Get-TimeStamp) Provided text has been correctly parsed to JSON"
+        } else {
+            Write-Host "$(Get-TimeStamp) Provided text is not a valid JSON string"
+            Exit
+        }
+}
 
 <#
 .Synopsis
@@ -8,15 +37,53 @@
    Get-TTRESTToken -APIkey "myapikey" -APISecret "myapisecret" -Environment "ext_prod_live"
    Supply your own API key and connect to live environment
 #>
+
+function Test-APIVars {
+    [CmdletBinding()]
+    Param
+    (
+        # TT API Key
+        [string]$ParamKey,
+        # TT API Key Secret
+        [string]$ParamSecret
+    )
+    ### Checking parms are correctly set ###
+    # Param set from command line overrides environment variables
+    if ($APIKey) {
+        Write-Host "$(Get-TimeStamp) API Key passed as parameter."
+        $global:APIKey = $ParamKey
+    }
+    else {
+        if ((Test-Path env:TT_RESTAPI_KEY)) {
+            $global:APIKey = $env:TT_RESTAPI_KEY
+            Write-Host "$(Get-TimeStamp) API Key found from Environment Variable"
+        }
+        else {
+            Write-Host "$(Get-TimeStamp) No TT REST API Key set, exiting"
+            Write-Host "$(Get-TimeStamp) Specify an API Key using the -APIKey param or as an Environment variable called TT_RESTAPI_KEY"
+            Exit
+        }
+    }
+    if ($APISecret) {
+        Write-Host "$(Get-TimeStamp) APISecret passed as parameter."
+        $global:APISecret = $ParamSecret
+    }
+    else {
+        if ((Test-Path env:TT_RESTAPI_SECRET)) {
+            $global:APISecret = $env:TT_RESTAPI_SECRET
+        Write-Host "$(Get-TimeStamp) API Secret found from Environment Variable"
+        }
+        else {
+            Write-Host "$(Get-TimeStamp) No TT REST API Secret set, exiting"
+            Write-Host "$(Get-TimeStamp) Specify an API Secret using the -APISecret param or as an Environment variable called TT_RESTAPI_SECRET"
+        }
+    }
+}
 function Get-TTRESTToken
 {
     [CmdletBinding()]
     Param
     (
-        # TT API Key
-        [string]$APIKey,
-        # TT API Key Secret part
-        [string]$APISecret,
         # TT Environment
         [string]$Environment
     )
@@ -38,18 +105,18 @@ function Get-TTRESTToken
         $AccessToken = Invoke-RestMethod -Uri $baseURL/ttid/$Environment/token -Method Post -Body $body -Headers $GetTokenHeaders -ContentType 'application/json'
     } 
     catch {
-        Write-Host "Error getting Access token, check API Key and API secret"
-        Write-Host "Using"
-        Write-Host "API Key: $APIKey"
-        Write-Host "API Secret: $APISecret"
-        Write-Host "Environment: $Environment"
-        Write-Host "StatusCode:" $_.Exception.Response.StatusCode.value__ 
-        Write-Host "StatusDescription:" $_.Exception.Response.StatusDescription
+        Write-Host "$(Get-TimeStamp) Error getting Access token, check API Key and API secret"
+        Write-Host "$(Get-TimeStamp) Using"
+        Write-Host "$(Get-TimeStamp) API Key: $APIKey"
+        Write-Host "$(Get-TimeStamp) API Secret: $APISecret"
+        Write-Host "$(Get-TimeStamp) Environment: $Environment"
+        Write-Host "$(Get-TimeStamp) StatusCode:" $_.Exception.Response.StatusCode.value__ 
+        Write-Host "$(Get-TimeStamp) StatusDescription:" $_.Exception.Response.StatusDescription
         Exit
     }
 
-    # Return just the token
-    Return $AccessToken.access_token
+    # Set the global variable access_token so it can be used in all modules.
+    $global:APIToken = $AccessToken.access_token
 }
 
 <#
@@ -66,10 +133,6 @@ function Get-TTAccounts
     [CmdletBinding()]
     Param
     (
-        # TT API Key
-        [string]$APIKey,
-        # TT API Token
-        [string]$APIToken,
         # TT Environment
         [string]$Environment
     )
@@ -90,7 +153,13 @@ function Get-TTAccounts
         If($i -gt 20) {break}
 
         Start-Sleep 0.5
-        $response = Invoke-RestMethod -Uri $baseURL/risk/$Environment/accounts?nextPageKey=$nextPageKey -Method Get -Headers $DataRequestHeaders
+        if ($nextPageKey) {
+            $response = Invoke-RestMethod -Uri $baseURL/risk/$Environment/accounts?nextPageKey=$nextPageKey -Method Get -Headers $DataRequestHeaders
+        }
+        else {
+            $response = Invoke-RestMethod -Uri $baseURL/risk/$Environment/accounts -Method Get -Headers $DataRequestHeaders
+        }
+        
         $nextPageKey = $response.nextPageKey
         $accounts += $response.accounts   
         $i++
@@ -115,10 +184,6 @@ function Get-TTMarkets
     [CmdletBinding()]
     Param
     (
-        # TT API Key
-        [string]$APIKey,
-        # TT API Token
-        [string]$APIToken,
         # TT Environment (default to UAT)
         [string]$Environment
     )
@@ -152,6 +217,7 @@ function Convert-TTRESTObjectToHashtable {
     $HashTable = @{}
 
     Foreach ($object in $Objects) {
+        Write-Debug $object.name
         $HashTable.add([int]$object.id, $object.name)
     }
     Return $HashTable
@@ -185,10 +251,6 @@ function Get-TTPositions
     [CmdletBinding()]
     Param
     (
-        # TT API Key
-        [string]$APIKey,
-        # TT API Token
-        [string]$APIToken,
         # TT Environment
         [string]$Environment,
         [string]$AccountFilter
@@ -199,9 +261,6 @@ function Get-TTPositions
     $DataRequestHeaders.Add("x-api-key", $APIKey)
     $DataRequestHeaders.Add("Authorization", 'Bearer '+ $APIToken )
 
-    $retrycount=1
-    $maxRetries=10 # Try 10 times
-
     # If a filter is specified append that to the REST request
     # Use ScaleQty 0 to get the total number of contracts rather than contracts in flow for energy products
     if ($AccountFilter) {
@@ -210,30 +269,18 @@ function Get-TTPositions
     else {
         $RESTRequest = "$baseURL/monitor/$Environment/position?scaleQty=0"
     }
-    do {
-        try {
-        $retrycount++
-        $response = ""
-        $response = Invoke-RestMethod -Uri $RESTRequest -Method Get -Headers $DataRequestHeaders
-        } catch {
-            # Catch any errors such as Too Many Requests, throttle rate limit and try again until Status is Ok.
-            Write-Host "Error looking up position data $RESTRequest"
-            Write-Host "Using"
-            Write-Host "API Key: $APIKey"
-            Write-Host "Environment: $Environment"
-            Write-Host "StatusCode:" $_.Exception.Response.StatusCode.value__ 
-            Write-Host "StatusDescription:" $_.Exception.Response.StatusDescription
-            Start-Sleep 0.2
-        }
-    }
-    until (($response.status -eq "Ok") -Or ($retrycount -gt $maxRetries))
 
-    # If the data requests failed up to the max number retries, then exit.
-    if ($retrycount -gt $maxRetries) {
-        Write-Host "Maximum retries exceeded when obtaining position data"
+    try {
+        $response = ""
+        $response = Invoke-RestMethod  -Uri $RESTRequest -Method Get -Headers $DataRequestHeaders -ErrorAction Stop
+    } 
+    catch {
+        Write-Host "$(Get-TimeStamp) Error looking up position data $RESTRequest, possibly invalid Json returned"
+        Write-Host "$(Get-TimeStamp) StatusCode:" $_.Exception.Response.StatusCode.value__ 
+        Write-Host "$(Get-TimeStamp) StatusDescription:" $_.Exception.Response.StatusDescription
         Exit
     }
-
+    Write-Host "$(Get-TimeStamp) Position Response: $response.status"
     # Create new positions array containing only the position data from the REST response (not the status messages)
     $positions = @()
     $positions = $response.positions
@@ -254,7 +301,7 @@ function Get-InstrumentCache {
     Param
     (
         # Path
-        [string]$Path = 'Data\instruments.xml'
+        [string]$Path = "Data\instruments.xml"
     )
     # format HTTP header for data GET requests
     $DataRequestHeaders = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
@@ -282,15 +329,10 @@ function Add-InstrumentDataToCache {
     [CmdletBinding()]
     Param
     (  
-        # TT API Key
-        [string]$APIKey,
-        # TT API Token
-        [string]$APIToken,
         # TT Environment
         [string]$Environment,
         # Array of instrumentsIds to add to cache
-        [uint64[]]$InstrumentIDs,
-        [string]$CacheFile
+        [uint64[]]$InstrumentIDs
     )
     # format HTTP header for data GET requests
     $DataRequestHeaders = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
@@ -313,19 +355,19 @@ function Add-InstrumentDataToCache {
         }
         else {
             # Obtain the new instrument data from TT REST API as it is not stored in the XML cache
-            Write-Host "Obtain the instrument data for $instrumentId from the TT REST API"
+            Write-Host "$(Get-TimeStamp) Obtain the instrument data for $instrumentId from the TT REST API"
             do {
                 try {
                     $instRequestResponse = ""
                     $instRequestResponse = Invoke-RestMethod -Uri $baseURL/pds/$Environment/instrument/$instrumentId -Method Get -Headers $DataRequestHeaders 
                 } catch {
                     # Catch any errors such as Too Many Requests, throttle rate limit and try again until Status is Ok.#
-                    Write-Host "Error looking up Instrument data for $instrumentId"
-                    Write-Host "Using"
-                    Write-Host "API Key: $APIKey"
-                    Write-Host "Environment: $Environment"
-                    Write-Host "StatusCode:" $_.Exception.Response.StatusCode.value__ 
-                    Write-Host "StatusDescription:" $_.Exception.Response.StatusDescription
+                    Write-Host "$(Get-TimeStamp) Error looking up Instrument data for $instrumentId"
+                    Write-Host "$(Get-TimeStamp) Using"
+                    Write-Host "$(Get-TimeStamp) API Key: $APIKey"
+                    Write-Host "$(Get-TimeStamp) Environment: $Environment"
+                    Write-Host "$(Get-TimeStamp) StatusCode:" $_.Exception.Response.StatusCode.value__ 
+                    Write-Host "$(Get-TimeStamp) StatusDescription:" $_.Exception.Response.StatusDescription
                     Start-Sleep 0.2
                 }
             }
@@ -336,11 +378,11 @@ function Add-InstrumentDataToCache {
             $marketName = $MarketsHashTable[$marketID]
             $instRequestResponse.instrument | Add-Member -type NoteProperty -Name "Market" -Value $marketName
 
-            Write-Host "======== NEW INSTRUMENT DATA ========"
+            Write-Host "$(Get-TimeStamp) ======== NEW INSTRUMENT DATA ========"
             Write-Host Name: $instRequestResponse.instrument.name 
             Write-Host Alias: $instRequestResponse.instrument.alias
             Write-Host Market: $instRequestResponse.instrument.alias
-            Write-Host "====================================="
+            Write-Host "$(Get-TimeStamp) ====================================="
             
             # Now add this instrument to the instruments cache object
             $instCache.add($instrumentId, $instRequestResponse.instrument )
@@ -366,10 +408,6 @@ function Get-EnrichedPositionData {
     [CmdletBinding()]
     Param
     (  
-        # TT API Key
-        [string]$APIKey,
-        # TT API Token
-        [string]$APIToken,
         # TT Environment
         [string]$Environment,
         # Account IDs to filter on
@@ -377,22 +415,23 @@ function Get-EnrichedPositionData {
         [string[]]$IncludeMarket,
         [string[]]$ExcludeMarket
     )
-    # Obtain a REST response for accounts
-    Write-Host Call Get-TTAccounts function from Get-EnrichedPositionData function
-    Write-Host Using APIKey $APIKey APIToken $APIToken  Environment $Environment
-    $AccountsRESTResponse = Get-TTAccounts -APIKey $APIKey `
-                                           -APIToken $APIToken `
-                                           -Environment $Environment
 
-    Write-Host Call Convert-TTRESTObjectToHashtable function from Get-EnrichedPositionData function
+
+    # Obtain a REST response for accounts
+    Write-Host "$(Get-TimeStamp) Call Get-TTAccounts function from Get-EnrichedPositionData function"
+    $AccountsRESTResponse = Get-TTAccounts -Environment $Environment
+    Write-Host $AccountsRESTResponse
+
+    Write-Host "$(Get-TimeStamp) Call Convert-TTRESTObjectToHashtable function from Get-EnrichedPositionData function"
     # Convert result to a hashtable
     $AccountsHashTable = Convert-TTRESTObjectToHashtable -Objects $AccountsRESTResponse
+    Write-Host "$(Get-TimeStamp) Completed converting AccountsREST Response to Hash Table"
 
+    Write-Host "$(Get-TimeStamp) Get Position data from Get-TTPositions function"
     # Get the positions from Positions function
-    $Positions = Get-TTPositions -APIKey $APIKey `
-                                 -APIToken $APIToken `
-                                 -Environment $Environment `
+    $Positions = Get-TTPositions -Environment $Environment `
                                  -AccountFilter $AccountFilter
+    Write-Host "$(Get-TimeStamp) Completed getting Position data from Get-TTPositions function"
 
     # Get the list of unique instruments in the positions response to use to lookup the instrument data for.
     # This instrument data is required to determine the marketId. alias and symbol later.
@@ -401,12 +440,10 @@ function Get-EnrichedPositionData {
 
     # Populate the instrument cache with the unique instruments.
     # We are only really interested in the market and product/alias names so these are safe to cache as they don't change.
-    $InstrumentCache = Add-InstrumentDataToCache -APIKey $APIKey `
-                                                 -APIToken $APIToken `
-                                                 -Environment $Environment `
-                                                 -InstrumentIDs $uniqueInstruments `
-                                                 -CacheFile $InstCacheFile
-
+    Write-Host "$(Get-TimeStamp) Call Add-InstrumentDataToCache function"
+    $InstrumentCache = Add-InstrumentDataToCache -Environment $Environment `
+                                                 -InstrumentIDs $uniqueInstruments
+     Write-Host "$(Get-TimeStamp) Finished Add-InstrumentDataToCache"
     # Enrich information for each position entry in the positions object
     # Add the Account name, Market, Product Symbol and instrument alias.
     # Filter by market if that is specified.
@@ -443,4 +480,33 @@ function Get-EnrichedPositionData {
 
     Return $Positions
 
+}
+
+
+function Get-Fills {
+    [CmdletBinding()]
+    Param
+    (  
+        # TT Environment
+        [string]$Environment,
+        # Account IDs to filter on
+        [string]$AccountFilter,
+        [string[]]$IncludeMarket,
+        [string[]]$ExcludeMarket
+    )
+
+
+
+}
+
+function Convert-EpochNano-ToDate {
+    Param
+    (  
+        # TT API Key
+        [int64]$EpochTime
+    )
+    $origin = New-Object -Type DateTime -ArgumentList 1970, 1, 1, 0, 0, 0, 0
+
+    # For nanosecond calc, divide nano seconds by 1000000000 to get seconds then add those seconds to 1 Jan 1970 00:00:00
+    Return ($origin.AddSeconds(([math]::Round($EpochTime / 1000000000))))
 }

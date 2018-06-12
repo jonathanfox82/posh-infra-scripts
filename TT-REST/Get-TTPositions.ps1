@@ -19,16 +19,16 @@
 Param
 (
     # TT API Key
-    [Parameter(mandatory=$true)]
-    [string]$APIKey,
+    [Parameter(mandatory=$false)]
+    [string]$global:APIKey,
 
     # TT API Secret
-    [Parameter(mandatory=$true)]
-    [string]$APISecret,
+    [Parameter(mandatory=$false)]
+    [string]$global:APISecret,
 
     # TT Environment (default live)
     [Parameter(mandatory=$false)]
-    [string]$Environment = "ext_prod_live",
+    [string]$global:Environment = "ext_prod_live",
 
     # Account names to filter as comma separated list.
     [Parameter(mandatory=$false)]
@@ -55,23 +55,24 @@ Import-Module '.\PSTTREST.psm1' -ErrorAction Stop
 $smtpServer = "smtp.ghfinancials.co.uk"
 $fromAddress = "newttpositions@ghfinancials.com"
 $subject = "TT Position Alert"
-$InstCacheFile = "Data\instruments.xml"
 ####################################################
 
 $dataobj = (Get-Date)
 
-<#
+<# 
  INITIAL SETUP AND OBTAIN TT API TOKEN, CHECK PARAMS ARE VALID
 #>
 
-# Get an API token using module
-$AccessToken = Get-TTRESTToken -APIKey $APIKey `
-                               -APISecret $APISecret `
-                               -Environment $Environment
+Test-APIVars -APIKey $APIKey -APISecret $APISecret
+
+# Get an API token using module, this function sets the value of $APIToken globally.
+Get-TTRESTToken -APIKey $APIKey `
+                -APISecret $APISecret `
+                -Environment $Environment
 
 # Obtain a REST response for accounts
 $AccountsRESTResponse = Get-TTAccounts -APIKey $APIKey `
-                                       -APIToken $AccessToken `
+                                       -APIToken $APIToken `
                                        -Environment $Environment
 
 # Convert result to a hashtable
@@ -79,7 +80,7 @@ $AccountsHashTable = Convert-TTRESTObjectToHashtable -Objects $AccountsRESTRespo
 
 # Obtain a REST response for markets
 $MarketsRESTResponse = Get-TTMarkets -APIKey $APIKey `
-                                     -APIToken $AccessToken `
+                                     -APIToken $APIToken `
                                      -Environment $Environment
 
 # Convert markets object to a hashtable
@@ -127,7 +128,7 @@ if ($Accounts) {
 # Get the positions
 Write-Host Get Positions -ForegroundColor Black -BackgroundColor Cyan
 $EnrichedPositions = Get-EnrichedPositionData -APIKey $APIKey `
-                                              -APIToken $AccessToken `
+                                              -APIToken $APIToken `
                                               -Environment $Environment `
                                               -AccountFilter $AccountIDFilterString `
                                               -IncludeMarket $IncludeMarkets `
