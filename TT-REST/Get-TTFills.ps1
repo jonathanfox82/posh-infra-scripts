@@ -1,4 +1,7 @@
-﻿<#
+﻿
+
+
+<#
 .Synopsis
    Obtain an extract of the fills for Recs team for yesterdays fills
 .DESCRIPTION
@@ -19,11 +22,11 @@ Param
 (
     # TT API Key
     [Parameter(mandatory=$false)]
-    [string]$global:APIKey,
+    [string]$TTAPIKey,
 
-    # TT API Secret
+    # TT API Key Secret part
     [Parameter(mandatory=$false)]
-    [string]$global:APISecret,
+    [string]$TTAPISecret,
 
     # TT Environment (default live)
     [Parameter(mandatory=$false)]
@@ -55,7 +58,10 @@ $subject = "TT Fills Report"
 $date = (Get-Date).ToString('yyyyMMdd-HHmmss')
 ####################################################
 
-Test-APIVars -APIKey $APIKey -APISecret $APISecret
+$global:APIKey = ""
+$global:APISecret = ""
+
+Test-APIVars -ParamKey $TTAPIKey -ParamSecret $TTAPISecret
 
 # Get Midnight for current date
 $maxTimestamp=[int64]((Get-Date -Hour 0 -Minute 00 -Second 00)-(get-date "1/1/1970")).TotalMilliseconds * 1000000
@@ -121,11 +127,11 @@ $OrderData = $OrderDataResponse.orderData
 $StartProcessingTime = Get-Date
 
 $FillsArray=@()
-$maxTimeStampDate = Convert-EpochNano-ToDate($maxTimestamp)
+$maxTimeStampDate = Convert-EpochNanoToDate($maxTimestamp)
 do
 {
     # What are we requesting ?
-    $minTimeStampDate = Convert-EpochNano-ToDate($minTimestamp)
+    $minTimeStampDate = Convert-EpochNanoToDate($minTimestamp)
     #$RESTRequest = "$baseURL/ledger/$Environment/fills?accountId=52387&minTimestamp=$minTimestamp&maxTimestamp=$maxTimestamp"
     $RESTRequest = "$baseURL/ledger/$Environment/fills?minTimestamp=$minTimestamp&maxTimestamp=$maxTimestamp"
 
@@ -174,7 +180,7 @@ Write-Host $ProcessingTime
 
 $FillsArray | Export-Clixml -Path "Data\$Environment\$($date)-fills.xml" -Force
 
-$FormattedFills = $FillsArray | Select @{N='DateandTime'; E={$(Convert-EpochNano-ToDate -EpochTime $_.timeStamp)}}, account, @{N='Market'; E={$MarketsHashtable[$_.marketId]}}, @{N='Contract'; E={$_.securityDesc}}, deltaQty, lastQty
+$FormattedFills = $FillsArray | Select @{N='DateandTime'; E={$(Convert-EpochNanoToDate -EpochTime $_.timeStamp)}}, account, @{N='Market'; E={$MarketsHashtable[$_.marketId]}}, @{N='Contract'; E={$_.securityDesc}}, deltaQty, lastQty
 $FormattedFills | select -First 15 | ft
 
 

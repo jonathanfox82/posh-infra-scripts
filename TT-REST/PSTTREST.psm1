@@ -49,7 +49,7 @@ function Test-APIVars {
     )
     ### Checking parms are correctly set ###
     # Param set from command line overrides environment variables
-    if ($APIKey) {
+    if ($ParamKey) {
         Write-Host "$(Get-TimeStamp) API Key passed as parameter."
         $global:APIKey = $ParamKey
     }
@@ -64,7 +64,7 @@ function Test-APIVars {
             Exit
         }
     }
-    if ($APISecret) {
+    if ($ParamSecret) {
         Write-Host "$(Get-TimeStamp) APISecret passed as parameter."
         $global:APISecret = $ParamSecret
     }
@@ -76,6 +76,7 @@ function Test-APIVars {
         else {
             Write-Host "$(Get-TimeStamp) No TT REST API Secret set, exiting"
             Write-Host "$(Get-TimeStamp) Specify an API Secret using the -APISecret param or as an Environment variable called TT_RESTAPI_SECRET"
+            Exit
         }
     }
 }
@@ -499,7 +500,7 @@ function Get-Fills {
 
 }
 
-function Convert-EpochNano-ToDate {
+function Convert-EpochNanoToDate {
     Param
     (  
         # TT API Key

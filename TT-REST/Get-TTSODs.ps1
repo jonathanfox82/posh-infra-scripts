@@ -63,8 +63,8 @@ $date = (Get-Date).ToString('yyyyMMdd-HHmmss')
 
 $global:APIKey = ""
 $global:APISecret = ""
-Test-APIVars -ParamKey $TTAPIKey -ParamSecret $TTAPISecret
 
+Test-APIVars -ParamKey $TTAPIKey -ParamSecret $TTAPISecret
 
 # Create data folder for export
 New-Item -ItemType Directory -Name Data\$Environment\ -ErrorAction SilentlyContinue

@@ -20,11 +20,11 @@ Param
 (
     # TT API Key
     [Parameter(mandatory=$false)]
-    [string]$global:APIKey,
+    [string]$TTAPIKey,
 
-    # TT API Secret
+    # TT API Key Secret part
     [Parameter(mandatory=$false)]
-    [string]$global:APISecret,
+    [string]$TTAPISecret,
 
     # TT Environment (default live)
     [Parameter(mandatory=$false)]
@@ -63,7 +63,10 @@ $dataobj = (Get-Date)
  INITIAL SETUP AND OBTAIN TT API TOKEN, CHECK PARAMS ARE VALID
 #>
 
-Test-APIVars -APIKey $APIKey -APISecret $APISecret
+$global:APIKey = ""
+$global:APISecret = ""
+
+Test-APIVars -ParamKey $TTAPIKey -ParamSecret $TTAPISecret
 
 # Get an API token using module, this function sets the value of $APIToken globally.
 Get-TTRESTToken -APIKey $APIKey `
