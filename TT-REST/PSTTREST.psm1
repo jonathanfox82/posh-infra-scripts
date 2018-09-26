@@ -45,27 +45,11 @@ function Get-TimeStamp {
     
 }
 
-function Test-JSONResponse {
-    Param
-    (
-        # TT API Key
-        [string]$StringToCheck
-    )
-        try {
-            $powershellRepresentation = ConvertFrom-Json $StringToCheck -ErrorAction Stop
-            $validJson = $true
-        } catch {
-            $validJson = $false
-        }
-
-        if ($validJson) {
-            Write-Host "$(Get-TimeStamp) Provided text has been correctly parsed to JSON"
-        } else {
-            Write-Host "$(Get-TimeStamp) Provided text is not a valid JSON string"
-            Exit
-        }
-}
-
+<# 
+    This function sets the API vars to use to communicate with the REST API.
+    There are 2 ways to set API vars, through command line or through environment variables.
+    If API vars have been specified from the command line, they override vars from environment.
+#>
 function Test-APIVars {
     [CmdletBinding()]
     Param
@@ -123,6 +107,7 @@ function Get-TTRESTToken
     Param
     (
         # TT Environment
+        [Parameter(mandatory=$true)]
         [string]$Environment
     )
 
@@ -168,6 +153,7 @@ function Get-TTRESTToken
 .DESCRIPTION
    Connect to the TT REST API and get a full list of the TT accounts associated with the API key specified
    Returns only the data from the request (not the status)
+   https://library.tradingtechnologies.com/tt-rest/risk.html
 .EXAMPLE
    Get-TTMarkets -Environment ext-prod-live
 #>
@@ -177,6 +163,7 @@ function Get-TTAccounts
     Param
     (
         # TT Environment
+        [Parameter(mandatory=$true)]
         [string]$Environment
     )
 
@@ -209,26 +196,32 @@ function Get-TTAccounts
     Return $Accounts
 }
 
+<#
+Gets a list of risk and limit parameters associated with the specified accountId and a list of all users,
+along with their respective user account permissions, linked to the accountId.
+https://library.tradingtechnologies.com/tt-rest/risk.html
 
-function Get-AccountInfo {
+#>
+function Get-TTAccountInfo {
     [CmdletBinding()]
     Param
     (
         # TT Environment
+        [Parameter(mandatory=$true)]
         [string]$Environment,
         # Account ID
+        [Parameter(mandatory=$true)]
         [string]$AccountID
     )
 
     $RESTRequest = "$baseURL/risk/$Environment/account/$AccountID"
 
     $AccountInfoResponse = Get-TTRestResponse -Request $RESTRequest
-    
-    $AccountInfo = $AccountInfoResponse.products
 
-    $Products | % { $_ | Add-Member -NotePropertyName marketId -NotePropertyValue $MarketId }
-    Return $AccountIDResponse
-
+    if ($AccountInfoResponse.status -eq 'ok') {
+        $AccountInfo = $AccountInfoResponse.account
+        Return $AccountInfo
+    }
 
 }
 
@@ -246,6 +239,7 @@ function Convert-TTRESTObjectToHashtable {
     [CmdletBinding()]
     Param
     (
+        [Parameter(mandatory=$true)]
         [PSObject[]]$Objects
     )
     # Create a hashtable for markets
@@ -262,6 +256,7 @@ function Convert-HashtableToObjectArray {
     [CmdletBinding()]
     Param
     (
+        [Parameter(mandatory=$true)]
         [hashtable]$HashTable
     )
     # Create an array for output
@@ -280,14 +275,19 @@ function Convert-HashtableToObjectArray {
    Look for a local file and import the existing cache if it exists,
    Otherwise return an empty hashtable object
 .EXAMPLE
-   Get-InstrumentCache -Path custom.xml
+   Get-InstrumentCache -CacheFilePath custom.xml
 #>
 function Get-InstrumentCache {
+    Param
+    (
+        [Parameter(mandatory=$true)]
+        [string]$CacheFilePath
+    )
     # Create a hashtable for instruments.
     $instrumentsCache= @{}
 
     if (Test-Path -Path $CacheFile) {
-        $instrumentsCache = Import-Clixml -Path $CacheFile
+        $instrumentsCache = Import-Clixml -Path $CacheFilePath
     }
     Return $instrumentsCache
 }
@@ -305,8 +305,10 @@ function Add-InstrumentDataToCache {
     Param
     (  
         # TT Environment
+        [Parameter(mandatory=$true)]
         [string]$Environment,
         # Array of instrumentsIds to add to cache
+        [Parameter(mandatory=$true)]
         [uint64[]]$InstrumentIDs
     )
 
@@ -316,7 +318,7 @@ function Add-InstrumentDataToCache {
     $MarketsHashTable = Convert-TTRESTObjectToHashtable -Objects $MarketsRESTResponse
 
     # Get existing cached data
-    $instCache = Get-InstrumentCache -Path $CacheFile
+    $instCache = Get-InstrumentCache -CacheFilePath $CacheFile
 
     Foreach ($instrumentId in $InstrumentIDs) {
 
@@ -366,6 +368,7 @@ function Get-EnrichedPositionData {
     Param
     (  
         # TT Environment
+        [Parameter(mandatory=$true)]
         [string]$Environment,
         # Account IDs to filter on
         [string]$AccountFilter,
@@ -381,7 +384,7 @@ function Get-EnrichedPositionData {
 
     # Get the positions from Positions function
     $Positions = Get-TTPositions -Environment $Environment `
-                                 -AccountFilter $AccountFilter
+                                 -AccountIDs $AccountFilter
 
     # Get the list of unique instruments in the positions response to use to lookup the instrument data for.
     # This instrument data is required to determine the marketId. alias and symbol later.
@@ -461,7 +464,11 @@ function Get-TTProducts
     [CmdletBinding()]
     Param
     (
+        # TT Environment
+        [Parameter(mandatory=$true)]
         [string]$Environment,
+        # Market
+        [Parameter(mandatory=$true)]
         [string]$MarketId
     )
 
@@ -481,7 +488,9 @@ function Get-TTProductDetail
     [CmdletBinding()]
     Param
     (
+        [Parameter(mandatory=$true)]
         [string]$Environment,
+        [Parameter(mandatory=$true)]
         [string]$ProductId
     )
     $RESTRequest = "$baseURL/pds/$Environment/product/$ProductId"
@@ -497,9 +506,10 @@ function Get-TTProductDetail
 .Synopsis
    Get the TT Positions from the monitor API
 .DESCRIPTION
-   Connect to the TT REST API, obtain the positions and return only the data from the request (not the status)
+   Gets positions based on today’s fills for all accounts associated with the application key or for specific accounts.
+   Included in the response are SODs.
 .EXAMPLE
-   Get-TTPositions -Environment ext-prod-live
+   Get-TTPositions -Environment ext-prod-live -AccountIDs 10200
 #>
 function Get-TTPositions
 {
@@ -507,14 +517,15 @@ function Get-TTPositions
     Param
     (
         # TT Environment
+        [Parameter(mandatory=$true)]
         [string]$Environment,
-        [string]$AccountFilter
+        [string]$AccountIDs
     )
     # If a filter is specified append that to the REST request
     # Use ScaleQty 0 to get the total number of contracts rather than contracts in flow for energy products
-    if ($AccountFilter)
+    if ($AccountIDs)
     {
-        $RESTRequest = "$baseURL/monitor/$Environment/position?accountIds=$AccountFilter&scaleQty=0"
+        $RESTRequest = "$baseURL/monitor/$Environment/position?accountIds=$AccountIDs&scaleQty=0"
     }
     else
     {
@@ -527,39 +538,13 @@ function Get-TTPositions
 
     Return $Positions
 }
-
-<#
-.Synopsis
-   Get a TT Markets REST Response
-.DESCRIPTION
-   Connect to the TT REST API and get a list of the TT markets.
-   Returns only the data from the request (not the status)
-.EXAMPLE
-   Get-TTMarkets -Environment ext-prod-live
-#>
-function Get-TTMarkets
-{
-    [CmdletBinding()]
-    Param
-    (
-        # TT Environment
-        [string]$Environment
-    )
-    $RESTRequest = "$baseURL/pds/$Environment/markets"
-
-    $MarketsResponse = Get-TTRestResponse -Request $RESTRequest
-    
-    $Markets = $MarketsResponse.markets
-
-    Return $Markets
-}
-
 function Get-TTFills
 {
     [CmdletBinding()]
     Param
     (
         # TT Environment
+        [Parameter(mandatory=$true)]
         [string]$Environment,
         [string]$minTimestamp,
         [string]$maxTimestamp
@@ -594,6 +579,55 @@ function Get-TTFills
     Return $FillsArray
 }
 
+function Get-TTOrders
+{
+    [CmdletBinding()]
+    Param
+    (
+        # TT Environment
+        [Parameter(mandatory=$true)]
+        [string]$Environment,
+        # comma separated set of account Ids
+        [Parameter(mandatory=$false)]
+        [string]$AccountIDs
+    )
+    # If a filter is specified append that to the REST request
+    if ($AccountIDs)
+    {
+        $RESTRequest = "$baseURL/ledger/$Environment/orders?accounts=$AccountIDs"
+    }
+    else
+    {
+        $RESTRequest = "$baseURL/ledger/$Environment/orders"
+    }
+
+    $OrdersResponse = Get-TTRestResponse -Request $RESTRequest
+    
+    $Orders = $OrdersResponse.orders
+
+    Return $Orders
+}
+function Get-TTPositionModifications
+{
+    [CmdletBinding()]
+    Param
+    (
+        # TT Environment
+        [Parameter(mandatory=$true)]
+        [string]$Environment,
+        # Present the records with newest timestamps first. (0 = no, 1 = yes)
+        [string]$Reverse,
+        # Maximum number of records to include in the response.
+        [string]$Count,
+        # Filter response to position modifications on a specific account. Account ID can be retrieved using the Risk service’s /accounts GET request.
+        [string]$AccountIDs,
+        # Filters response to position modifications before a specific time. Entered as epoch time in nanoseconds.
+        [string]$MaxTimestamp,
+        # Filters response to position modifications after a specific time. Entered as epoch time in nanoseconds.
+        [string]$MinTimestamp
+    )
+    # Not yet implemented
+}
 
 # Safely get data from TT REST API
 function Get-TTRestResponse {
@@ -617,14 +651,233 @@ function Get-TTRestResponse {
         }
         Write-Host "$(Get-TimeStamp) Response: $($response.status)"
         $retryCount++;
+
         if ($retryCount -gt 10) {
             Write-Host "$(Get-TimeStamp) Error looking up data $retryCount times, quitting"
             Exit
         }
-
     }
     until ($response.status -eq "Ok")
 
     Return $response
 }
 
+<#
+   Gets a list of supported country IDs, codes, names that you can
+   use when adding a user with the /user endpoint.
+#>
+function Get-TTCountryIds
+{
+    [CmdletBinding()]
+    Param
+    (
+        # TT Environment
+        [Parameter(mandatory=$true)]
+        [string]$Environment
+    )
+    $RESTRequest = "$baseURL/risk/$Environment/user/countryIds"
+
+    $CountryIdsResponse = Get-TTRestResponse -Request $RESTRequest
+    
+    $CountryIds = $CountryIdsResponse.countries
+
+    Return $CountryIds
+}
+<#
+   Gets a list of supported country IDs, codes, names that you can
+   use when adding a user with the /user endpoint.
+#>
+function Get-TTStateIds
+{
+    [CmdletBinding()]
+    Param
+    (
+        # TT Environment
+        [Parameter(mandatory=$true)]
+        [string]$Environment
+    )
+    $RESTRequest = "$baseURL/risk/$Environment/user/stateIds"
+
+    $StateIdsResponse = Get-TTRestResponse -Request $RESTRequest
+    
+    $StateIds = $StateIdsResponse.states
+
+    Return $StateIds
+}
+<#
+   Gets a list of supported country IDs, codes, names that you can
+   use when adding a user with the /user endpoint.
+#>
+function Get-TTUsers
+{
+    [CmdletBinding()]
+    Param
+    (
+        # TT Environment
+        [Parameter(mandatory=$true)]
+        [string]$Environment
+    )
+
+    # Get remaining user data until we have all the user data
+    $nextPageKey = ""
+    $i=0
+    $users=@()
+
+    do  {
+        # Failsafe
+        If($i -gt 20) {break}
+
+        Start-Sleep 0.5
+        if ($nextPageKey) {
+            $RESTRequest = "$baseURL/risk/$Environment/users?nextPageKey=$nextPageKey"
+        }
+        else {
+            $RESTRequest = "$baseURL/risk/$Environment/users"
+        }
+        $UsersResponse = Get-TTRestResponse -Request $RESTRequest
+        $nextPageKey = $UsersResponse.nextPageKey
+        Write-Host "Got $($UsersResponse.users.count) more users"
+        $Users += $UsersResponse.users   
+        $i++
+    }
+    until ($UsersResponse.lastPage -eq $true)
+    
+    Write-host total of $Users.count user accounts obtained
+    Return $Users
+}
+
+
+# PDS Section (Reference Data)
+function Get-TTInstrumentRefData
+{
+    [CmdletBinding()]
+    Param
+    (
+        # TT Environment
+        [Parameter(mandatory=$true)]
+        [string]$Environment
+    )
+    $RESTRequest = "$baseURL/pds/$Environment/instrumentdata"
+
+    $InstrumentDataResponse = Get-TTRestResponse -Request $RESTRequest
+    
+    Return $InstrumentDataResponse
+}
+
+
+<#
+.Synopsis
+   Get a TT Markets REST Response
+.DESCRIPTION
+   Connect to the TT REST API and get a list of the TT markets.
+   Returns only the data from the request (not the status)
+.EXAMPLE
+   Get-TTMarkets -Environment ext-prod-live
+#>
+function Get-TTMarkets
+{
+    [CmdletBinding()]
+    Param
+    (
+        # TT Environment
+        [Parameter(mandatory=$true)]
+        [string]$Environment
+    )
+    $RESTRequest = "$baseURL/pds/$Environment/markets"
+
+    $MarketsResponse = Get-TTRestResponse -Request $RESTRequest
+    
+    $Markets = $MarketsResponse.markets
+
+    Return $Markets
+}
+
+<#
+Gets a list of Market Identification Codes (MIC).
+#>
+function Get-TTMICs
+{
+    [CmdletBinding()]
+    Param
+    (
+        # TT Environment
+        [Parameter(mandatory=$true)]
+        [string]$Environment
+    )
+    $RESTRequest = "$baseURL/pds/$Environment/mics"
+
+    $MICsResponse = Get-TTRestResponse -Request $RESTRequest
+    
+    $MICs = $MICsResponse.markets
+
+    Return $MICs
+}
+
+function Get-TTProductTypes
+{
+    [CmdletBinding()]
+    Param
+    (
+        # TT Environment
+        [Parameter(mandatory=$true)]
+        [string]$Environment
+    )
+    $RESTRequest = "$baseURL/pds/$Environment/productdata"
+
+    $ProductTypesResponse = Get-TTRestResponse -Request $RESTRequest
+    
+    $ProductTypes = $ProductTypesResponse.productTypes
+
+    Return $ProductTypes
+
+}
+<#
+    Gets details about a product family and lists products within that family.
+#>
+function Get-TTProductsInFamily
+{
+    [CmdletBinding()]
+    Param
+    (
+        # TT Environment
+        [Parameter(mandatory=$true)]
+        [string]$Environment,
+        # Product Family ID. Can be retrieved by the Get-TTProducts function
+        [Parameter(mandatory=$true)]
+        $ProductFamilyId
+    )
+    $RESTRequest = "$baseURL/pds/$Environment/productfamily?productFamilyId=$ProductFamilyId"
+
+    $ProductFamilyResponse = Get-TTRestResponse -Request $RESTRequest
+    
+    $ProductFamily = $ProductFamilyResponse.productFamily
+
+    Return $ProductFamily
+
+}
+
+<#
+    Gets details about a product family.
+#>
+function Get-TTProductFamilyDetails
+{
+    [CmdletBinding()]
+    Param
+    (
+        # TT Environment
+        [Parameter(mandatory=$true)]
+        [string]$Environment,
+        # Product Family ID. Can be retrieved by the Get-TTProducts function
+        [Parameter(mandatory=$true)]
+        $ProductFamilyId
+    )
+
+    $RESTRequest = "$baseURL/pds/$Environment/productfamily/$ProductFamilyId"
+
+    $ProductFamilyDetailsResponse = Get-TTRestResponse -Request $RESTRequest
+    
+    $ProductFamilyDetails = $ProductFamilyDetailsResponse.productFamily
+
+    Return $ProductFamilyDetails
+
+}

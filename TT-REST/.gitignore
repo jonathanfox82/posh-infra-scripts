@@ -6,5 +6,4 @@
 *.log
 
 Data\*\
-GeneralCommands.ps1
-Test-PositionsAPI.ps1
+logs\*\
