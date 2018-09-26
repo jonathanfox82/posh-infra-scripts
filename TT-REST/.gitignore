@@ -1,9 +1,0 @@
-*.tmp
-
-# CSV files
-*.csv
-*.json
-*.log
-
-Data\*\
-logs\*\
