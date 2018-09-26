@@ -1,7 +1,2 @@
 cluster,vSwitch,VLANname,VLANid
-Bengaluru Cluster,vSwitch1,VLAN40 - TT Edge,40
-Horizon Cluster,vSwitch1,VLAN40 - TT Edge,40
-Kolkata Cluster,vSwitch1,VLAN40 - TT Edge,40
-Jaipur Cluster,vSwitch1,VLAN40 - TT Edge,40
-Hyderabad Cluster,vSwitch1,VLAN40 - TT Edge,40
-New Jaipur Cluster,vSwitch1,VLAN40 - TT Edge,40
+London Interxion,vSwitch0,VLAN410 - RDGW,410

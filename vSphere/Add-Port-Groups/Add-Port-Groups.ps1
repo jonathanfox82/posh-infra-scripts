@@ -5,7 +5,7 @@
    Used to add new standard port groups to a set of vSwitches within a datacenter.
    CSV import used to define cluster,vSwitch,VLANname,VLANid
 .EXAMPLE
-   .\Add-Port-Groups.ps1  -vCenter lcy-vcenter -PortGroupsCSV = "MyPortGroups.csv"
+   .\Add-Port-Groups.ps1  -vCenter lonix-vcenter -PortGroupsCSV "PortGroups.csv"
  .VERSION 1.0
  Jonathan Fox
 #>
