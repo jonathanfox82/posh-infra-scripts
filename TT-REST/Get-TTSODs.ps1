@@ -42,7 +42,7 @@ Param
     [string]$Email
 )
 
-Write-Host "$(Get-TimeStamp) Importing TTREST Module"
+Write-Host "Importing TTREST Module"
 
 # Remove module if it exists already
 Remove-Module PSTTREST -ErrorAction SilentlyContinue
@@ -66,9 +66,6 @@ $global:APISecret = ""
 
 Test-APIVars -ParamKey $TTAPIKey -ParamSecret $TTAPISecret
 
-# Create data folder for export
-New-Item -ItemType Directory -Name Data\$Environment\ -ErrorAction SilentlyContinue
-
 # Get an API token using module, this function sets the value of $APIToken globally.
 Get-TTRESTToken -Environment $Environment
 
@@ -78,7 +75,7 @@ Write-Host "$(Get-TimeStamp) Get Positions" -ForegroundColor Black -BackgroundCo
 $EnrichedPositions = Get-EnrichedPositionData -Environment $Environment `
                                               -IncludeMarket $IncludeMarkets `
                                               -ExcludeMarket $ExcludeMarkets
-
+                                              
 # Generate Output Format (remove any SODs with quantity 0 as those are newly traded intraday positions)
 $OutputFileName = "$($date)-$OutputFile.csv"
 $Output = $EnrichedPositions | Where-Object { $_.sodNetPos -ne 0 } | Sort-Object AccountName,Market,Product,Contract | Select @{N='Account'; E={$_.AccountName}}, Market, Product, Contract,@{N='SOD Qty'; E={$_.sodNetPos}}
@@ -88,7 +85,7 @@ $Output | Format-Table | Out-String| % {Write-Host $_}
 
 # Export output to CSV.
 Write-Host "$(Get-TimeStamp) Exporting Positions" -ForegroundColor Black -BackgroundColor Cyan
-$Output | Export-Csv -Path ".\Data\$Environment\$OutputFileName" -NoTypeInformation
+$Output | Export-Csv -Path "\\ghfinancials.co.uk\GHF\Projects\Automations\Recs-GetTTSODs\$Environment\$OutputFileName" -NoTypeInformation
 
 <# 
  EMAIL RESULTS

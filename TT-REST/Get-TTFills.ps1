@@ -1,7 +1,4 @@
-﻿
-
-
-<#
+﻿<#
 .Synopsis
    Obtain an extract of the fills for Recs team for yesterdays fills
 .DESCRIPTION
@@ -41,13 +38,14 @@ Param
     [string]$Email
 )
 
+
 Write-Host Importing TTREST Module
 
 # Remove module if it exists already
 Remove-Module PSTTREST -ErrorAction SilentlyContinue
 
-# Import Module 
-Import-Module '.\PSTTREST.psm1' -ErrorAction Stop
+# Import from Recs folder copy. 
+Import-Module '\\ghfinancials.co.uk\GHF\Projects\Automations\TTREST-Scripts\PSTTREST.psm1' -ErrorAction Stop
 
 ################ VARIABLES BLOCK ###################
 $baseURL = "https://apigateway.trade.tt"
@@ -56,6 +54,7 @@ $fromAddress = "ttfills@ghfinancials.com"
 $subject = "TT Fills Report"
 [datetime]$origin = '1970-01-01 00:00:00'
 $date = (Get-Date).ToString('yyyyMMdd-HHmmss')
+$logfile = "Logs\$date.log"
 ####################################################
 
 $global:APIKey = ""
@@ -63,15 +62,24 @@ $global:APISecret = ""
 
 Test-APIVars -ParamKey $TTAPIKey -ParamSecret $TTAPISecret
 
-# Get Midnight for current date
+# Get Midnight for maxtimeStamp
 $maxTimestamp=[int64]((Get-Date -Hour 0 -Minute 00 -Second 00)-(get-date "1/1/1970")).TotalMilliseconds * 1000000
-# Get Midnight for yesterday
-$minTimestamp=[int64]((Get-Date -Hour 0 -Minute 00 -Second 00).AddDays(-1)-(get-date "1/1/1970")).TotalMilliseconds * 1000000
 
-# Get time now
-#$maxTimestamp=[int64]((Get-Date)-(get-date "1/1/1970")).TotalMilliseconds * 1000000
-# Get Midnight for current date
-#$minTimestamp=[int64]((Get-Date -Hour 0 -Minute 00 -Second 00)-(get-date "1/1/1970")).TotalMilliseconds * 1000000
+$d = Get-Date -Hour 0 -Minute 00 -Second 00
+if ('Monday' -contains $d.DayOfWeek) {
+  $prevWD = $d.AddDays(-3)
+}
+ elseif ('Sunday' -contains $d.DayOfWeek) {
+  $prevWD = $d.AddDays(-2)
+} else {
+  $prevWD = $d.AddDays(-1)
+}
+
+# Set Output file name
+
+$filename = $($prevWD.ToString('yyyyMMdd'))
+
+# Get Midnight for minTimeStamp
 
 <#
  INITIAL SETUP AND OBTAIN TT API TOKEN, CHECK PARAMS ARE VALID
@@ -98,7 +106,7 @@ if ($IncludeMarkets) {
 
     foreach ($market in $IncludeMarkets) {
         if ($MarketsHashTable.values -notcontains $market) {
-            Write-Host Invalid markets parameter specified, exiting
+            Write-Host "$(Get-TimeStamp) Invalid markets parameter specified, exiting"
             Write-Host Valid options are 
             Write-Host $MarketsHashTable.Values
             Write-Host 'Specify markets as a comma separated list of strings e.g. -Markets "ICE","LIFFE"'
@@ -108,89 +116,100 @@ if ($IncludeMarkets) {
     }
 }
 
-$OrderDataResponse = Invoke-RestMethod -Uri $baseURL/ledger/$Environment/orderdata -Method Get -Headers $DataRequestHeaders -ContentType 'application/json'
-$OrderData = $OrderDataResponse.orderData
+$OrderDataResponse = Invoke-RestMethod -Uri $baseURL/ledger/$Environment/orderdata -Method Get -Headers $DataRequestHeaders
+$OrderData = ConvertPSObjectToHashtable -InputObject $OrderDataResponse.orderData
 
 $StartProcessingTime = Get-Date
 
 $FillsArray=@()
 $maxTimeStampDate = Convert-EpochNanoToDate($maxTimestamp)
+
 do
 {
     # What are we requesting ?
     $minTimeStampDate = Convert-EpochNanoToDate($minTimestamp)
-    #$RESTRequest = "$baseURL/ledger/$Environment/fills?accountId=52387&minTimestamp=$minTimestamp&maxTimestamp=$maxTimestamp"
     $RESTRequest = "$baseURL/ledger/$Environment/fills?minTimestamp=$minTimestamp&maxTimestamp=$maxTimestamp"
 
     # Invoke request
+    $retryCount=0
     do {
         try {
-            Write-Host Request: $minTimeStampDate to $maxTimeStampDate
+            Write-Host "$(Get-TimeStamp) Requesting: $minTimeStampDate to $maxTimeStampDate"
             $fillsResponse = ""
-            $RequestTime = Measure-Command { $fillsResponse = Invoke-WebRequest -Uri $RESTRequest -Method Get -Headers $DataRequestHeaders -ContentType 'application/json'}
+            $RequestTime = Measure-Command { $fillsResponse = Invoke-RestMethod -Uri $RESTRequest -Method Get -Headers $DataRequestHeaders}
         } catch {
             # Catch any errors such as Too Many Requests, throttle rate limit and try again until Status is Ok.
-            Write-Host "Error looking up fills"
+            Write-Host "$(Get-TimeStamp) Error looking up fills"
             Write-Host "StatusCode:" $_.Exception.Response.StatusCode.value__ 
             Write-Host "StatusDescription:" $_.Exception.Response.StatusDescription
+            $retryCount++;
+            Start-Sleep 0.2
+
+            if ($retryCount -gt 10) { 
+                Write-Host "$(Get-TimeStamp) Exceeded maximum retries, exiting."
+                Exit
+            }
+
         }
     }
-    until ($fillsResponse.StatusCode -eq 200)
+    until ($fillsResponse.status -eq "Ok")
           
-    $fills = $fillsResponse | ConvertFrom-Json
+    $fills = $fillsResponse.fills  # | Select -Property account, accountId, avgPx, brokerId, cumQty, currUserId, deltaQty, execInst, execType, externallyCreated, instrumentId, lastPx, lastQty, manualOrderIndicator, marketId, multiLegReportingType, orderId, recordId, securityDesc, senderLocationId, senderSubId, side, source, syntheticType, timeStamp, tradeDate, transactTime
 
-    Write-Host Downloaded $fills.fills.Count new fills in $RequestTime.Seconds seconds
-
-    # Output results
-    $fills.fills | Format-Table | Out-String| % {Write-Host $_}
-    
+    Write-Host "$(Get-TimeStamp) Downloaded $($fills.Count) new fills in $($RequestTime.Seconds) seconds"
+  
     # Add to array
-    $FillsArray += $fills.fills
+    $FillsArray += $fills
+   
 
     # Calculate new window to query if there are more results to obtain
-    if ($fills.fills.Count -ne 0) {
-        $minTimestamp = ($fills.fills | select -Last 1 | select timestamp).timestamp
+    if ($fills.Count -ne 0) {
+        [uint64]$lastRecordTimeStamp = (($fills | select -Last 1 | select timestamp).timestamp)
+        [uint64]$minTimestamp = $lastRecordTimeStamp + 1
         $minTimeStampDate = $origin.AddSeconds(([math]::Round($minTimestamp / 1000000000)))
     }
 }
-until ($fills.fills.Count -le 1)
-
+until ($fills.Count -le 1)
 
 $EndProcessingTime = Get-Date
 $ProcessingTime = New-TimeSpan –Start $StartProcessingTime -End $EndProcessingTime
 
-Write-Host Total Fills Downloaded: $FillsArray.Count in 
-Write-Host $ProcessingTime
+Write-Host "$(Get-TimeStamp) Total Fills Downloaded: $($FillsArray.Count) in $($ProcessingTime.Seconds) seconds"
 
-$FillsArray | Export-Clixml -Path "Data\$Environment\$($date)-fills.xml" -Force
+Write-Host "$(Get-TimeStamp) Converting data to readable format (could take some time)."
+$FormattedFills = $FillsArray | Select `
+                                account,`
+                                avgPx,`
+                                brokerId,`
+                                cumQty,`
+                                currUserId,`
+                                deltaQty,`
+                                execInst,`
+                                @{N='executionType';E={$OrderData.executionType[$($_.execType).toString()]}},`
+                                externallyCreated,`
+                                instrumentId,`
+                                lastPx,`
+                                lastQty,`
+                                manualOrderIndicator,
+                                @{N='Market';E={$MarketsHashtable[$_.marketId]}} ,`
+                                multiLegReportingType,` # Need to convert this to readable format
+                                orderId,`
+                                recordId,`
+                                securityDesc,`
+                                senderLocationId,`
+                                senderSubId,`
+                                @{N='side';E= {$OrderData.side[$($_.side).toString()]}},`
+                                source,` # Need to convert this to readable format
+                                @{N='synthType';E={$OrderData.syntheticType[$($_.syntheticType).toString()]}},`
+                                @{N='timeStamp';E={$(Convert-EpochNanoToDate -EpochTime $_.timeStamp)}},`
+                                @{N='tradeDate';E={$(Convert-EpochNanoToDate -EpochTime $_.tradeDate)}}, `
+                                @{N='transactTime';E={$(Convert-EpochNanoToDate -EpochTime $_.transactTime)}}
 
-$FormattedFills = $FillsArray | Select @{N='DateandTime'; E={$(Convert-EpochNanoToDate -EpochTime $_.timeStamp)}}, account, @{N='Market'; E={$MarketsHashtable[$_.marketId]}}, @{N='Contract'; E={$_.securityDesc}}, deltaQty, lastQty
-$FormattedFills | select -First 15 | ft
+#Import-DataToDatabaseTable -DBServer lonix-sql04 -DBName RiskDB -TblName Staging_TTFills -DataObject $FillsArray
 
+Write-Host "$(Get-TimeStamp) Exporting to CSV"
 
-Exit
-
-<# 
- EMAIL RESULTS
- If email address is defined, send to that address 
-#>
-If ($Email) {
-Write-Host Sending email notifications
-
-$msg = new-object Net.Mail.MailMessage
-$smtp = new-object Net.Mail.SmtpClient($smtpServer)
-$msg.From = $fromAddress
-$msg.To.Add($Email)
-$msg.Subject = $subject
-
-$body = "CONTENT"
-$msg.Body = @"
-
-$($body.ToString())
-
-"@
-
-$smtp.Send($msg)
-}
-
-
+# Export RAW copy
+$FillsArray | Export-CSV -Path "\\ghfinancials.co.uk\GHF\Projects\Automations\Recs-GetTTFills\Data\ext_prod_live\$($date)-fills-raw.csv" -NoTypeInformation
+# Export Formatted copy
+$FormattedFills | Export-CSV -Path "\\ghfinancials.co.uk\GHF\Projects\Automations\Recs-GetTTFills\Data\ext_prod_live\$($date)-formatted.csv" -NoTypeInformation

@@ -1,12 +1,49 @@
 [string]$global:baseURL = "https://apigateway.trade.tt"
-[string]$global:CacheFile = "Data\instruments.xml"
+[string]$global:CacheFile = ".\instruments.xml"
+
+# This function creates the keys as strings.
+function ConvertPSObjectToHashtable
+{
+    param (
+        [Parameter(ValueFromPipeline)]
+        $InputObject
+    )
+
+    process
+    {
+        if ($null -eq $InputObject) { return $null }
+
+        if ($InputObject -is [System.Collections.IEnumerable] -and $InputObject -isnot [string])
+        {
+            $collection = @(
+                foreach ($object in $InputObject) { ConvertPSObjectToHashtable $object }
+            )
+
+            Write-Output -NoEnumerate $collection
+        }
+        elseif ($InputObject -is [psobject])
+        {
+            $hash = @{}
+
+            foreach ($property in $InputObject.PSObject.Properties)
+            {
+                $hash[$property.Name] = ConvertPSObjectToHashtable $property.Value
+            }
+
+            $hash
+        }
+        else
+        {
+            $InputObject
+        }
+    }
+}
 
 function Get-TimeStamp {
     
     return "[{0:MM/dd/yy} {0:HH:mm:ss}]" -f (Get-Date)
     
 }
-
 
 function Test-JSONResponse {
     Param
@@ -28,8 +65,6 @@ function Test-JSONResponse {
             Exit
         }
 }
-
-
 
 function Test-APIVars {
     [CmdletBinding()]
@@ -151,51 +186,52 @@ function Get-TTAccounts
     $nextPageKey = ""
     $i=0
     $accounts=@()
+
     do  {
         # Failsafe
         If($i -gt 20) {break}
 
         Start-Sleep 0.5
         if ($nextPageKey) {
-            $response = Invoke-RestMethod -Uri $baseURL/risk/$Environment/accounts?nextPageKey=$nextPageKey -Method Get -Headers $DataRequestHeaders -ContentType 'application/json'
+            $RESTRequest = "$baseURL/risk/$Environment/accounts?nextPageKey=$nextPageKey"
         }
         else {
-            $response = Invoke-RestMethod -Uri $baseURL/risk/$Environment/accounts -Method Get -Headers $DataRequestHeaders -ContentType 'application/json'
+            $RESTRequest = "$baseURL/risk/$Environment/accounts"
         }
-        
-        $nextPageKey = $response.nextPageKey
-        $accounts += $response.accounts   
+        $AccountsResponse = Get-TTRestResponse -Request $RESTRequest
+        $nextPageKey = $AccountsResponse.nextPageKey
+        $Accounts += $AccountsResponse.accounts   
         $i++
     }
-    until ($response.lastPage -eq $true)
+    until ($AccountsResponse.lastPage -eq $true)
 
     # Return array of accounts
-    Return $accounts
+    Return $Accounts
 }
 
-<#
-.Synopsis
-   Get a TT Markets REST Response
-.DESCRIPTION
-   Connect to the TT REST API and get a list of the TT markets.
-   Returns only the data from the request (not the status)
-.EXAMPLE
-   Get-TTMarkets -Environment ext-prod-live
-#>
-function Get-TTMarkets
-{
+
+function Get-AccountInfo {
     [CmdletBinding()]
     Param
     (
         # TT Environment
-        [string]$Environment
+        [string]$Environment,
+        # Account ID
+        [string]$AccountID
     )
-    
-    # Get markets data 
-    $markets = Invoke-RestMethod -Uri $baseURL/pds/$Environment/markets -Method Get -Headers $DataRequestHeaders
 
-    Return $markets.markets
+    $RESTRequest = "$baseURL/risk/$Environment/account/$AccountID"
+
+    $AccountInfoResponse = Get-TTRestResponse -Request $RESTRequest
+    
+    $AccountInfo = $AccountInfoResponse.products
+
+    $Products | % { $_ | Add-Member -NotePropertyName marketId -NotePropertyValue $MarketId }
+    Return $AccountIDResponse
+
+
 }
+
 
 <#
 .Synopsis
@@ -239,51 +275,6 @@ function Convert-HashtableToObjectArray {
 
 <#
 .Synopsis
-   Get the TT Positions from the monitor API
-.DESCRIPTION
-   Connect to the TT REST API, obtain the positions and return only the data from the request (not the status)
-.EXAMPLE
-   Get-TTPositions -Environment ext-prod-live
-#>
-function Get-TTPositions
-{
-    [CmdletBinding()]
-    Param
-    (
-        # TT Environment
-        [string]$Environment,
-        [string]$AccountFilter
-    )
-
-    # If a filter is specified append that to the REST request
-    # Use ScaleQty 0 to get the total number of contracts rather than contracts in flow for energy products
-    if ($AccountFilter) {
-        $RESTRequest = "$baseURL/monitor/$Environment/position?accountIds=$AccountFilter&scaleQty=0"
-    }
-    else {
-        $RESTRequest = "$baseURL/monitor/$Environment/position?scaleQty=0"
-    }
-
-    try {
-        $response = ""
-        $response = Invoke-RestMethod  -Uri $RESTRequest -Method Get -Headers $DataRequestHeaders -ErrorAction Stop
-    } 
-    catch {
-        Write-Host "$(Get-TimeStamp) Error looking up position data $RESTRequest, possibly invalid Json returned"
-        Write-Host "$(Get-TimeStamp) StatusCode:" $_.Exception.Response.StatusCode.value__ 
-        Write-Host "$(Get-TimeStamp) StatusDescription:" $_.Exception.Response.StatusDescription
-        Exit
-    }
-    Write-Host "$(Get-TimeStamp) Position Response: $($response.status)"
-
-    # Create new positions array containing only the position data from the REST response (not the status messages)
-    $positions = @()
-    $positions = $response.positions
-    Return $positions
-}
-
-<#
-.Synopsis
    Return a hashtable with cached instrument data if it exists
 .DESCRIPTION
    Look for a local file and import the existing cache if it exists,
@@ -292,18 +283,11 @@ function Get-TTPositions
    Get-InstrumentCache -Path custom.xml
 #>
 function Get-InstrumentCache {
-    [CmdletBinding()]
-    Param
-    (
-        # Path
-        [string]$Path = "Data\instruments.xml"
-    )
-
     # Create a hashtable for instruments.
     $instrumentsCache= @{}
 
-    if (Test-Path -Path $Path) {
-        $instrumentsCache = Import-Clixml -Path $Path
+    if (Test-Path -Path $CacheFile) {
+        $instrumentsCache = Import-Clixml -Path $CacheFile
     }
     Return $instrumentsCache
 }
@@ -343,22 +327,10 @@ function Add-InstrumentDataToCache {
         else {
             # Obtain the new instrument data from TT REST API as it is not stored in the XML cache
             Write-Host "$(Get-TimeStamp) Obtain the instrument data for $instrumentId from the TT REST API"
-            do {
-                try {
-                    $instRequestResponse = ""
-                    $instRequestResponse = Invoke-RestMethod -Uri $baseURL/pds/$Environment/instrument/$instrumentId -Method Get -Headers $DataRequestHeaders 
-                } catch {
-                    # Catch any errors such as Too Many Requests, throttle rate limit and try again until Status is Ok.#
-                    Write-Host "$(Get-TimeStamp) Error looking up Instrument data for $instrumentId"
-                    Write-Host "$(Get-TimeStamp) Using"
-                    Write-Host "$(Get-TimeStamp) API Key: $APIKey"
-                    Write-Host "$(Get-TimeStamp) Environment: $Environment"
-                    Write-Host "$(Get-TimeStamp) StatusCode:" $_.Exception.Response.StatusCode.value__ 
-                    Write-Host "$(Get-TimeStamp) StatusDescription:" $_.Exception.Response.StatusDescription
-                    Start-Sleep 0.2
-                }
-            }
-            until ($instRequestResponse.status -eq "Ok")
+
+            $instRequestResponse = ""
+            $RESTRequest = "$baseURL/pds/$Environment/instrument/$instrumentId"
+            $instRequestResponse =  Get-TTRestResponse -Request  $RESTRequest
 
             # if this works, lookup market name using market ID and market hash table and add to this object
             $marketID = $instRequestResponse.instrument.marketid
@@ -368,8 +340,6 @@ function Add-InstrumentDataToCache {
             Write-Host "$(Get-TimeStamp) ======== NEW INSTRUMENT DATA ========"
             Write-Host Name: $instRequestResponse.instrument.name 
             Write-Host Alias: $instRequestResponse.instrument.alias
-            Write-Host Market: $instRequestResponse.instrument.alias
-            Write-Host "$(Get-TimeStamp) ====================================="
             
             # Now add this instrument to the instruments cache object
             $instCache.add($instrumentId, $instRequestResponse.instrument )
@@ -378,7 +348,7 @@ function Add-InstrumentDataToCache {
     }
 
     # Export new copy of cached instrument data overwriting old file.
-    $instCache | Export-Clixml -Path 'Data\instruments.xml'
+    $instCache | Export-Clixml -Path $CacheFile
 
     Return $instCache
 }
@@ -403,21 +373,15 @@ function Get-EnrichedPositionData {
         [string[]]$ExcludeMarket
     )
 
-
     # Obtain a REST response for accounts
-    Write-Host "$(Get-TimeStamp) Call Get-TTAccounts function from Get-EnrichedPositionData function"
     $AccountsRESTResponse = Get-TTAccounts -Environment $Environment
 
-    Write-Host "$(Get-TimeStamp) Call Convert-TTRESTObjectToHashtable function from Get-EnrichedPositionData function"
     # Convert result to a hashtable
     $AccountsHashTable = Convert-TTRESTObjectToHashtable -Objects $AccountsRESTResponse
-    Write-Host "$(Get-TimeStamp) Completed converting AccountsREST Response to Hash Table"
 
-    Write-Host "$(Get-TimeStamp) Get Position data from Get-TTPositions function"
     # Get the positions from Positions function
     $Positions = Get-TTPositions -Environment $Environment `
                                  -AccountFilter $AccountFilter
-    Write-Host "$(Get-TimeStamp) Completed getting Position data from Get-TTPositions function"
 
     # Get the list of unique instruments in the positions response to use to lookup the instrument data for.
     # This instrument data is required to determine the marketId. alias and symbol later.
@@ -426,10 +390,9 @@ function Get-EnrichedPositionData {
 
     # Populate the instrument cache with the unique instruments.
     # We are only really interested in the market and product/alias names so these are safe to cache as they don't change.
-    Write-Host "$(Get-TimeStamp) Call Add-InstrumentDataToCache function"
     $InstrumentCache = Add-InstrumentDataToCache -Environment $Environment `
                                                  -InstrumentIDs $uniqueInstruments
-     Write-Host "$(Get-TimeStamp) Finished Add-InstrumentDataToCache"
+
     # Enrich information for each position entry in the positions object
     # Add the Account name, Market, Product Symbol and instrument alias.
     # Filter by market if that is specified.
@@ -437,9 +400,16 @@ function Get-EnrichedPositionData {
 
         # Lookup instrument data using instrument ID and instruments hash table
         $instId = $_.instrumentId
+
+        $ExpiryDate = [datetime]::parseexact($InstrumentCache[[uint64]$instId].expirationDate.ToString().SubString(0,8), 'yyyyMMdd',$null)
+
         $_ | Add-Member -type NoteProperty -Name "Market" -Value $InstrumentCache[[uint64]$instId].Market
         $_ | Add-Member -type NoteProperty -Name "Contract" -Value $InstrumentCache[[uint64]$instId].alias
         $_ | Add-Member -type NoteProperty -Name "Product" -Value $InstrumentCache[[uint64]$instId].productSymbol
+        $_ | Add-Member -type NoteProperty -Name "ExpirationDate" -Value $ExpiryDate
+        $_ | Add-Member -type NoteProperty -Name "TickValue" -Value $InstrumentCache[[uint64]$instId].tickValue
+        $_ | Add-Member -type NoteProperty -Name "TickSize" -Value $InstrumentCache[[uint64]$instId].tickSize
+        $_ | Add-Member -type NoteProperty -Name "PointValue" -Value $InstrumentCache[[uint64]$instId].pointValue
 
         # Lookup account name using account ID and accounts hash table
         $accountID = $_.accountID
@@ -468,23 +438,6 @@ function Get-EnrichedPositionData {
 
 }
 
-
-function Get-Fills {
-    [CmdletBinding()]
-    Param
-    (  
-        # TT Environment
-        [string]$Environment,
-        # Account IDs to filter on
-        [string]$AccountFilter,
-        [string[]]$IncludeMarket,
-        [string[]]$ExcludeMarket
-    )
-
-
-
-}
-
 function Convert-EpochNanoToDate {
     Param
     (  
@@ -493,6 +446,185 @@ function Convert-EpochNanoToDate {
     )
     $origin = New-Object -Type DateTime -ArgumentList 1970, 1, 1, 0, 0, 0, 0
 
-    # For nanosecond calc, divide nano seconds by 1000000000 to get seconds then add those seconds to 1 Jan 1970 00:00:00
-    Return ($origin.AddSeconds(([math]::Round($EpochTime / 1000000000))))
+    if ($EpochTime) {
+        # For nanosecond calc, divide nano seconds by 1000000000 to get seconds then add those seconds to 1 Jan 1970 00:00:00
+        Return ($origin.AddSeconds(([math]::Round($EpochTime / 1000000000))))
+    }
+    else {
+        Return $null
+    }
+
 }
+
+function Get-TTProducts
+{
+    [CmdletBinding()]
+    Param
+    (
+        [string]$Environment,
+        [string]$MarketId
+    )
+
+    $RESTRequest = "$baseURL/pds/$Environment/products?marketId=$MarketId"
+
+    $ProductsResponse = Get-TTRestResponse -Request $RESTRequest
+    
+    $Products = $ProductsResponse.products
+
+    $Products | % { $_ | Add-Member -NotePropertyName marketId -NotePropertyValue $MarketId }
+    Return $Products
+
+}
+
+function Get-TTProductDetail
+{
+    [CmdletBinding()]
+    Param
+    (
+        [string]$Environment,
+        [string]$ProductId
+    )
+    $RESTRequest = "$baseURL/pds/$Environment/product/$ProductId"
+
+    $ProductDetailResponse = Get-TTRestResponse -Request $RESTRequest
+    
+    $ProductDetail = $ProductDetailResponse.product
+
+    Return $ProductDetail
+}
+
+<#
+.Synopsis
+   Get the TT Positions from the monitor API
+.DESCRIPTION
+   Connect to the TT REST API, obtain the positions and return only the data from the request (not the status)
+.EXAMPLE
+   Get-TTPositions -Environment ext-prod-live
+#>
+function Get-TTPositions
+{
+    [CmdletBinding()]
+    Param
+    (
+        # TT Environment
+        [string]$Environment,
+        [string]$AccountFilter
+    )
+    # If a filter is specified append that to the REST request
+    # Use ScaleQty 0 to get the total number of contracts rather than contracts in flow for energy products
+    if ($AccountFilter)
+    {
+        $RESTRequest = "$baseURL/monitor/$Environment/position?accountIds=$AccountFilter&scaleQty=0"
+    }
+    else
+    {
+        $RESTRequest = "$baseURL/monitor/$Environment/position?scaleQty=0"
+    }
+
+    $PositionsResponse = Get-TTRestResponse -Request $RESTRequest
+    
+    $Positions = $PositionsResponse.positions
+
+    Return $Positions
+}
+
+<#
+.Synopsis
+   Get a TT Markets REST Response
+.DESCRIPTION
+   Connect to the TT REST API and get a list of the TT markets.
+   Returns only the data from the request (not the status)
+.EXAMPLE
+   Get-TTMarkets -Environment ext-prod-live
+#>
+function Get-TTMarkets
+{
+    [CmdletBinding()]
+    Param
+    (
+        # TT Environment
+        [string]$Environment
+    )
+    $RESTRequest = "$baseURL/pds/$Environment/markets"
+
+    $MarketsResponse = Get-TTRestResponse -Request $RESTRequest
+    
+    $Markets = $MarketsResponse.markets
+
+    Return $Markets
+}
+
+function Get-TTFills
+{
+    [CmdletBinding()]
+    Param
+    (
+        # TT Environment
+        [string]$Environment,
+        [string]$minTimestamp,
+        [string]$maxTimestamp
+    )
+    $FillsArray=@()
+    $maxTimeStampDate = Convert-EpochNanoToDate($maxTimestamp)
+    do
+    {
+    # What are we requesting ?
+        $minTimeStampDate = Convert-EpochNanoToDate($minTimestamp)
+        Write-Host Request: $minTimeStampDate to $maxTimeStampDate
+
+        $Fills = ""
+
+        $RESTRequest = "$baseURL/ledger/$Environment/fills?minTimestamp=$minTimestamp&maxTimestamp=$maxTimestamp"
+
+        $FillsResponse = Get-TTRestResponse -Request $RESTRequest
+    
+        $Fills = $FillsResponse.fills
+
+        # Add to array
+        $FillsArray += $Fills
+
+        # Calculate new window to query if there are more results to obtain
+        if ($fills.Count -ne 0) {
+            $minTimestamp = ($fills | select -Last 1 | select timestamp).timestamp
+            $minTimeStampDate = $origin.AddSeconds(([math]::Round($minTimestamp / 1000000000)))
+        }
+    }
+    until ($fills.Count -le 1)
+
+    Return $FillsArray
+}
+
+
+# Safely get data from TT REST API
+function Get-TTRestResponse {
+    [CmdletBinding()]
+    Param
+    (
+        [string]$Request
+    )
+    $retryCount = 0
+    Write-Host Request: $Request
+    do {
+        try {
+            $response = ""
+            $response = Invoke-RestMethod -Uri $Request -Method Get -Headers $DataRequestHeaders
+        } 
+        catch {
+            Write-Host "$(Get-TimeStamp) Error looking up data"
+            Write-Host "$(Get-TimeStamp) StatusCode:" $_.Exception.Response.StatusCode
+            Write-Host "$(Get-TimeStamp) StatusDescription:" $_.Exception.Response.StatusDescription
+            Start-Sleep 0.5
+        }
+        Write-Host "$(Get-TimeStamp) Response: $($response.status)"
+        $retryCount++;
+        if ($retryCount -gt 10) {
+            Write-Host "$(Get-TimeStamp) Error looking up data $retryCount times, quitting"
+            Exit
+        }
+
+    }
+    until ($response.status -eq "Ok")
+
+    Return $response
+}
+

@@ -3,6 +3,7 @@
 # CSV files
 *.csv
 *.json
+*.log
 
 Data\*\
 GeneralCommands.ps1
