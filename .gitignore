@@ -1,3 +1,4 @@
 vSphere/trv.csv
 vSphere/Add-Port-Groups/PortGroups.csv
 vSphere/Get-IOPS/IOPS-Dashboard.pbix
+vSphere/Deploy-VMs-From-Template/*.csv

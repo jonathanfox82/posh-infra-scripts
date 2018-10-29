@@ -11,13 +11,9 @@ Param(
 #
 $vmlist = Import-CSV $vmCsv
 
-# Load PowerCLI
-$psSnapInName = "VMware.VimAutomation.Core"
-if (-not (Get-PSSnapin -Name $psSnapInName -ErrorAction SilentlyContinue))
-{
-# Exit if the PowerCLI snapin cannot be loaded
-Add-PSSnapin -Name $psSnapInName -ErrorAction Stop
-}
+# Import PowerCLI Modules 
+Write-Host Importing VMware Modules
+Get-Module -ListAvailable VM* | Import-Module
 Connect-VIServer $vCenter
 foreach ($item in $vmlist) {
 
@@ -33,7 +29,7 @@ $pdns = $item.pdns
 $sdns = $item.sdns
 $datacenter = $item.datacenter
 $template = Get-Datacenter -Name $datacenter | Get-Template -Name $item.template
-$destfolder = Get-Datacenter -Name $datacenter | Get-Folder -Name $item.folder
+$destfolder = Get-Datacenter -Name $datacenter | Get-Folder -Name $item.folder -Type VM
 $vmhost = $item.vmhost
 $stdpg = $item.stdpg
 $memsize = $item.memsize
@@ -43,12 +39,19 @@ $VMExists = Get-VM -Name $vmname -ErrorAction SilentlyContinue
 
 if (!$VMExists) {
 Write-Host "No VM named $vmname exists"
+
 # Configure the Customization Spec info if static IP is defined
-Get-OSCustomizationSpec $custspec | Get-OSCustomizationNicMapping | Set-OSCustomizationNicMapping -IpMode UseStaticIp -IpAddress $ipaddr -SubnetMask $subnet -DefaultGateway $gateway #-Dns $pdns
+if ($ipaddr -and $subnet -and $gateway -and $pdns -and $sdns ) {
+    Get-OSCustomizationSpec $custspec | Get-OSCustomizationNicMapping | Set-OSCustomizationNicMapping -IpMode UseStaticIp -IpAddress $ipaddr -SubnetMask $subnet -DefaultGateway $gateway -Dns $pdns
+}
+else {
+    Get-OSCustomizationSpec $custspec | Get-OSCustomizationNicMapping | Set-OSCustomizationNicMapping -IpMode UseDhcp
+}
+
 # Deploy the VM based on the template with the adjusted Customization Specification
 New-VM -Name $vmname -Template $template -Datastore $datastore -DiskStorageFormat $diskformat -VMHost $vmhost -Description $description | Set-VM -OSCustomizationSpec $custspec -Confirm:$false
 # Move VM to Applications folder
-Get-vm -Name $vmname | move-vm -Destination $destfolder
+Get-vm -Name $vmname | Move-VM -Destination $destfolder
 # Set the Port Group Network Name (Match PortGroup names with the VLAN name)
 Get-VM -Name $vmname | Get-NetworkAdapter | Set-NetworkAdapter -NetworkName $stdpg -Confirm:$false
 # Set the number of CPUs and MB of RAM
@@ -62,4 +65,7 @@ Write-Host "A VM named $vmname already exists"
 }
 
 }
+
+Get-OSCustomizationSpec $custspec | Get-OSCustomizationNicMapping | Set-OSCustomizationNicMapping -IpMode UseDhcp
+
 Disconnect-VIServer $vCenter -Confirm:$false
